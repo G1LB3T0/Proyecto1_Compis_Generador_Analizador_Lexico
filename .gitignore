@@ -65,3 +65,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# === Carpeta de compilación — generada automáticamente ===
+build/
+
+# === El ejecutable del generador ===
+generador
