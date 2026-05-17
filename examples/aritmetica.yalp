@@ -1,0 +1,47 @@
+/* aritmetica.yalp
+   Gramática clásica de expresiones aritméticas
+   del Dragon Book (sin recursión izquierda):
+
+   E  → T E'
+   E' → + T E' | ε
+   T  → F T'
+   T' → * F T' | ε
+   F  → ( E ) | id
+*/
+
+/* ── Tokens ── */
+%token id
+%token OP_PLUS
+%token OP_MUL
+%token LPAREN
+%token RPAREN
+
+%%
+
+/* E → T E' */
+e:
+    t eprime
+;
+
+/* E' → + T E' | ε */
+eprime:
+    OP_PLUS t eprime
+    | 
+;
+
+/* T → F T' */
+t:
+    f tprime
+;
+
+/* T' → * F T' | ε */
+tprime:
+    OP_MUL f tprime
+    |
+;
+
+/* F → ( E ) | id */
+f:
+    LPAREN e RPAREN
+    | id
+;

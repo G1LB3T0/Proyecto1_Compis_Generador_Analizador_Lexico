@@ -1,0 +1,32 @@
+(* Lexer para Gramática No. 4 *)
+
+{
+enum Token { WHITESPACE, ID, NUMBER, SEMICOLON,
+             ASSIGNOP, LT, EQ, PLUS, MINUS,
+             TIMES, DIV, LPAREN, RPAREN };
+}
+
+let delim = [' ''\t''\n']
+let ws = delim+
+let letter = ['A'-'Z''a'-'z']
+let str = ('_')*
+let digit = ['0'-'9']
+let digits = digit+
+let id = letter(letter|str|digit)*
+let number = digits('.'digits)?('E'['+''-']?digits)?
+
+rule tokens = 
+  ws       { std::cout << "<WHITESPACE, \"" << lxm << "\">\n"; }
+  | id       { std::cout << "<ID, \""         << lxm << "\">\n"; }
+  | number   { std::cout << "<NUMBER, \""     << lxm << "\">\n"; }
+  | ';'      { std::cout << "<SEMICOLON>\n"; }
+  | ":="     { std::cout << "<ASSIGNOP>\n"; }
+  | '<'      { std::cout << "<LT>\n"; }
+  | '='      { std::cout << "<EQ>\n"; }
+  | '+'      { std::cout << "<PLUS>\n"; }
+  | '-'      { std::cout << "<MINUS>\n"; }
+  | '*'      { std::cout << "<TIMES>\n"; }
+  | '/'      { std::cout << "<DIV>\n"; }
+  | '('      { std::cout << "<LPAREN>\n"; }
+  | ')'      { std::cout << "<RPAREN>\n"; }
+
