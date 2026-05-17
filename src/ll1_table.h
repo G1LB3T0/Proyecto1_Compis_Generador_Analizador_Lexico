@@ -17,7 +17,7 @@ struct LL1Conflict {
 //  LL1Table
 //  Tabla de análisis predictivo LL(1).
 //
-//  Construcción (Dragon Book, Sección 4.4):
+//  Construcción:
 //    Para cada producción A → α:
 //      Para cada a ∈ FIRST(α) − {ε}: M[A, a] = A → α
 //      Si ε ∈ FIRST(α):

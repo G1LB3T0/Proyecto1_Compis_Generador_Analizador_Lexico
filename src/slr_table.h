@@ -30,7 +30,7 @@ struct ParseConflict {
 //  SLRTable
 //  Tabla de análisis SLR(1).
 //
-//  Construcción (Dragon Book, Sección 4.7):
+//  Construcción:
 //    Para cada estado i y cada ítem en ese estado:
 //      • [A → α • aβ]  →  ACTION[i, a] = shift GOTO(i, a)
 //      • [A → α •]     →  ACTION[i, b] = reduce A→α  ∀b ∈ FOLLOW(A)

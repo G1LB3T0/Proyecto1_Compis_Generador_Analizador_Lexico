@@ -16,7 +16,7 @@ struct LL1ParseResult {
 //  LL1Parser
 //  Motor de análisis predictivo LL(1) dirigido por tabla.
 //
-//  Algoritmo (Dragon Book, Sección 4.4.4):
+//  Algoritmo predictivo:
 //    Stack iniciado con [S, $]
 //    1. Tope = terminal que coincide con lookahead → match, pop, consume
 //    2. Tope = no-terminal A → buscar M[A, lookahead]
