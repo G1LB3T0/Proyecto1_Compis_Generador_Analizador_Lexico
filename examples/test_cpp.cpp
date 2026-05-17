@@ -10,7 +10,7 @@ int factorial(int n) {
 }
 
 int main() {
-    int x = 10;
+    int x = 10@;
     float pi = 3.14;
     bool activo = true;
 
