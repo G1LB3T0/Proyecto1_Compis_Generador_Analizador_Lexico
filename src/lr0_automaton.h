@@ -26,7 +26,7 @@ using ItemSet = std::set<LR0Item>;
 //  LR0Automaton
 //  Construye la colección canónica de conjuntos de ítems LR(0).
 //
-//  Algoritmo (Dragon Book, Sección 4.6):
+//  Algoritmo de construcción:
 //    1. Aumentar la gramática: S' → S
 //    2. Estado inicial = closure({[S' → • S]})
 //    3. Para cada estado I y símbolo X: si GOTO(I,X) ≠ ∅ →

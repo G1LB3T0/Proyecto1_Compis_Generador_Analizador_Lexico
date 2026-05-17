@@ -31,7 +31,7 @@ using LR1ItemSet = std::set<LR1Item>;
 //  LALRTable
 //  Tabla de análisis LALR(1).
 //
-//  Estrategia (Dragon Book, Sección 4.7.4):
+//  Estrategia LALR:
 //    1. Construir todos los estados LR(1) (ítems con lookahead)
 //    2. Agrupar estados que tienen el mismo "núcleo" LR(0)
 //       (mismas producciones y posiciones de punto, ignorando lookaheads)

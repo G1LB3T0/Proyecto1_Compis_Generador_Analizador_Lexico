@@ -16,7 +16,7 @@ struct LRParseResult {
 //  LRParser
 //  Motor de análisis dirigido por tabla para SLR(1) y LALR(1).
 //
-//  Implementa el algoritmo de pila del Dragon Book (Sección 4.6):
+//  Implementa el algoritmo de pila LR:
 //    Stack: [ (estado, símbolo), ... ]
 //    1. Leer ACTION[tope, lookahead]
 //       • shift s  → empujar token + estado s; avanzar input
