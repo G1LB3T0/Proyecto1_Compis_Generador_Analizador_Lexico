@@ -1,0 +1,12 @@
+let letter = ['A'-'Z''a'-'z''_']
+let digit  = ['0'-'9']
+let alnum  = ['A'-'Z''a'-'z''0'-'9''_']
+let ws     = [' ''\t''\n''\r']+
+
+rule tokens =
+  ws                  { }
+  | letter alnum*     { std::cout << "<id, \"" << lxm << "\">\n"; }
+  | '+'               { std::cout << "<OP_PLUS, \"" << lxm << "\">\n"; }
+  | '*'               { std::cout << "<OP_MUL, \"" << lxm << "\">\n"; }
+  | '('               { std::cout << "<LPAREN, \"" << lxm << "\">\n"; }
+  | ')'               { std::cout << "<RPAREN, \"" << lxm << "\">\n"; }

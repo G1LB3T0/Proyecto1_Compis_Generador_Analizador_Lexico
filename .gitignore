@@ -71,3 +71,12 @@ build/
 
 # === El ejecutable del generador ===
 generador
+
+# === Ejecutables del proyecto ===
+yapar_cli
+menu
+yapar
+
+# === Python ===
+__pycache__/
+*.pyc

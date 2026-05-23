@@ -1,15 +1,17 @@
 #pragma once
 #include "slr_table.h"
 #include "token_stream.h"
+#include "parse_step.h"
 #include <vector>
 #include <string>
 
 // Resultado del análisis LR (sirve para SLR y LALR)
 struct LRParseResult {
     bool        accepted     = false;
-    std::string error_msg;
-    // Orden de reducciones aplicadas (índices de producción)
+    std::string error_msg;           // primer error (compatibilidad)
+    std::vector<std::string> errors; // todos los errores acumulados (panic mode)
     std::vector<int> reductions;
+    std::vector<ParseStep> trace;    // traza paso a paso
 };
 
 // ============================================================

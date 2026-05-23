@@ -1,15 +1,17 @@
 #pragma once
 #include "ll1_table.h"
 #include "token_stream.h"
+#include "parse_step.h"
 #include <string>
 #include <vector>
 
 // Resultado del análisis LL(1)
 struct LL1ParseResult {
     bool        accepted = false;
-    std::string error_msg;
-    // Orden de producciones aplicadas (índices) — derivación izquierda
+    std::string error_msg;           // primer error (compatibilidad)
+    std::vector<std::string> errors; // todos los errores acumulados (panic mode)
     std::vector<int> derivations;
+    std::vector<ParseStep> trace;    // traza paso a paso
 };
 
 // ============================================================

@@ -68,6 +68,16 @@ public:
     int  pos()   const { return (int)pos_; }
     int  size()  const { return (int)tokens_.size(); }
 
+    // Devuelve los tipos de los tokens restantes separados por espacio
+    std::string remainingStr() const {
+        std::string s;
+        for (size_t i = pos_; i < tokens_.size(); i++) {
+            if (i > pos_) s += " ";
+            s += tokens_[i].tipo;
+        }
+        return s;
+    }
+
     // Imprime todos los tokens — para debug y evaluación
     void print() const {
         std::cout << "\n========== TOKEN STREAM ==========\n";
