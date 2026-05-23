@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YALex + YAPar — Generador de Compiladores</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="logo">
+    <h1>YALex + YAPar</h1>
+    <p>Generador de Compiladores</p>
+  </div>
+
+  <!-- Archivos -->
+  <div>
+    <div class="section-label">Archivos</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div>
+        <div style="font-size:.78rem;color:var(--subtext);margin-bottom:4px;">.yal — Léxico</div>
+        <select id="sel-yal" onchange="onFileChange()"><option value="">Cargando...</option></select>
+      </div>
+      <div>
+        <div style="font-size:.78rem;color:var(--subtext);margin-bottom:4px;">.yalp — Gramática</div>
+        <select id="sel-yalp" onchange="onFileChange()"><option value="">Cargando...</option></select>
+      </div>
+      <!-- Botón editor -->
+      <button class="btn btn-secondary" id="btn-editor" onclick="toggleEditor()" style="font-size:.8rem;padding:7px;">
+        ✏️ Abrir Editor
+      </button>
+    </div>
+  </div>
+
+  <!-- Método -->
+  <div>
+    <div class="section-label">Método de análisis</div>
+    <div class="radio-group" id="method-group">
+      <label class="radio-option active" data-method="slr">
+        <input type="radio" name="method" value="slr" checked>
+        <div class="radio-dot"></div>
+        <div class="radio-label">
+          <strong>SLR(1)</strong>
+          <small>LR(0) + FOLLOW(A)</small>
+        </div>
+      </label>
+      <label class="radio-option" data-method="lalr">
+        <input type="radio" name="method" value="lalr">
+        <div class="radio-dot"></div>
+        <div class="radio-label">
+          <strong>LALR(1)</strong>
+          <small>LR(1) con fusión de estados</small>
+        </div>
+      </label>
+      <label class="radio-option" data-method="ll1">
+        <input type="radio" name="method" value="ll1">
+        <div class="radio-dot"></div>
+        <div class="radio-label">
+          <strong>LL(1)</strong>
+          <small>FIRST / FOLLOW (top-down)</small>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <!-- Construir tabla -->
+  <button class="btn btn-primary" id="btn-build" onclick="buildTable()">
+    ▶ Construir Tabla
+  </button>
+
+  <!-- Evaluar cadena -->
+  <div id="parse-section" style="display:none;flex-direction:column;gap:8px;">
+    <div class="section-label">Evaluar cadena</div>
+
+    <!-- Input manual -->
+    <input type="text" id="input-str" placeholder='Ej: x + y * z'
+           onkeydown="if(event.key==='Enter') parseInput()">
+
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-secondary" style="flex:1" onclick="parseInput()">
+        ⚡ Analizar
+      </button>
+      <!-- Cargar cadenas desde archivo -->
+      <label class="btn btn-secondary" style="width:38px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0" title="Cargar cadenas desde .txt">
+        📂
+        <input type="file" accept=".txt" onchange="loadInputFile(event)" style="display:none">
+      </label>
+    </div>
+
+    <!-- Lista de cadenas del archivo -->
+    <div id="strings-panel" style="display:none;flex-direction:column;gap:4px;">
+      <div style="font-size:.72rem;color:var(--overlay);margin-bottom:2px;">Cadenas del archivo — clic para seleccionar:</div>
+      <div id="strings-list"></div>
+    </div>
+  </div>
+
+  <div class="status-bar" id="status">Selecciona archivos y un método.</div>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<main class="main" id="main-wrap">
+
+  <!-- ── Editor panel (oculto por defecto) ─────────────────── -->
+  <div id="editor-panel" style="display:none;" class="pipeline-step editor-step">
+    <div class="step-header" style="cursor:default;">
+      <!-- Tabs -->
+      <div class="editor-tabs">
+        <button class="editor-tab active" data-tab="yal"  onclick="switchTab('yal')">
+          <span id="tab-yal-label">.yal</span>
+        </button>
+        <button class="editor-tab" data-tab="yalp" onclick="switchTab('yalp')">
+          <span id="tab-yalp-label">.yalp</span>
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
+        <span id="save-status" style="font-size:.78rem;"></span>
+        <button class="btn btn-secondary" onclick="saveCurrentFile()"
+                style="width:auto;padding:5px 14px;font-size:.8rem;">
+          💾 Guardar
+        </button>
+        <button onclick="toggleEditor()"
+                style="background:none;border:none;color:var(--subtext);cursor:pointer;font-size:1rem;padding:0 4px;">✕</button>
+      </div>
+    </div>
+    <!-- Textareas -->
+    <div id="editor-yal"  class="editor-pane">
+      <textarea id="textarea-yal"  class="code-editor" spellcheck="false"
+                oninput="markDirty('yal')"></textarea>
+    </div>
+    <div id="editor-yalp" class="editor-pane" style="display:none;">
+      <textarea id="textarea-yalp" class="code-editor" spellcheck="false"
+                oninput="markDirty('yalp')"></textarea>
+    </div>
+  </div>
+
+  <!-- ── Pipeline ──────────────────────────────────────────── -->
+  <div id="main">
+    <div class="empty-state">
+      <div class="icon">⚙️</div>
+      <p>Selecciona un archivo <strong>.yal</strong> y un <strong>.yalp</strong>,<br>
+         elige el método y presiona <strong>Construir Tabla</strong>.</p>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
