@@ -1,0 +1,25 @@
+(* Lexer mínimo del avance semántico.
+   Las palabras reservadas se colocan antes de ID para conservar prioridad. *)
+
+let letter = ['A'-'Z' 'a'-'z' '_']
+let digit  = ['0'-'9']
+let alnum  = ['A'-'Z' 'a'-'z' '0'-'9' '_']
+let ws     = [' ' '\t' '\r' '\n']
+
+rule tokens =
+    ws+           { }
+  | "class"       { return KW_CLASS; }
+  | "int"         { return KW_INT; }
+  | "float"       { return KW_FLOAT; }
+  | "double"      { return KW_DOUBLE; }
+  | "char"        { return KW_CHAR; }
+  | "bool"        { return KW_BOOL; }
+  | "string"      { return KW_STRING; }
+  | "void"        { return KW_VOID; }
+  | letter alnum* { return ID; }
+  | '{'           { return LBRACE; }
+  | '}'           { return RBRACE; }
+  | '('           { return LPAREN; }
+  | ')'           { return RPAREN; }
+  | ';'           { return SEMICOLON; }
+  | ','           { return COMMA; }

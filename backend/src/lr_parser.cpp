@@ -38,6 +38,9 @@ LRParseResult LRParser::run(
 
     std::vector<int>         stateStack  = {0};
     std::vector<std::string> symbolStack = {"$"};
+    // Pila semántica paralela. A diferencia de symbolStack, no contiene el
+    // marcador $, porque cada entrada representa un símbolo real del árbol.
+    std::vector<std::shared_ptr<ParseTreeNode>> nodeStack;
 
     while (true) {
         if ((int)result.errors.size() >= MAX_ERRORS) {
@@ -117,8 +120,10 @@ LRParseResult LRParser::run(
                     "  →  Shift, ir a estado " + std::to_string(act.value);
                 result.trace.push_back(step);
             }
-            symbolStack.push_back(stream.consume().tipo);
+            Token shifted = stream.consume();
+            symbolStack.push_back(shifted.tipo);
             stateStack.push_back(act.value);
+            nodeStack.push_back(makeTerminalNode(shifted));
 
         } else if (act.type == ActionType::REDUCE) {
             const Production& prod = grammar.productions[act.value];
@@ -142,12 +147,21 @@ LRParseResult LRParser::run(
                 result.trace.push_back(step);
             }
 
+            std::vector<std::shared_ptr<ParseTreeNode>> children;
+            if (popCount > 0) {
+                const size_t firstChild = nodeStack.size() - popCount;
+                children.assign(nodeStack.begin() + firstChild, nodeStack.end());
+                nodeStack.erase(nodeStack.begin() + firstChild, nodeStack.end());
+            }
+
             for (int k = 0; k < popCount; k++) {
                 stateStack.pop_back();
                 symbolStack.pop_back();
             }
 
             symbolStack.push_back(prod.head);
+            nodeStack.push_back(
+                makeNonTerminalNode(prod.head, act.value, children));
             int newTop = stateStack.back();
 
             auto itGoto = gotoMap.find(newTop);
@@ -170,6 +184,8 @@ LRParseResult LRParser::run(
                 result.trace.push_back(step);
             }
             result.accepted = result.errors.empty();
+            if (result.accepted && !nodeStack.empty())
+                result.parse_tree = nodeStack.back();
             return result;
         }
     }

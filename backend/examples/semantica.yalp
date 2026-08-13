@@ -1,0 +1,102 @@
+/* Gramática deliberadamente pequeña para el primer avance semántico.
+   Reconoce clases, atributos, métodos, parámetros, variables y bloques. */
+
+%token KW_CLASS
+%token KW_INT
+%token KW_FLOAT
+%token KW_DOUBLE
+%token KW_CHAR
+%token KW_BOOL
+%token KW_STRING
+%token KW_VOID
+%token ID
+%token LBRACE
+%token RBRACE
+%token LPAREN
+%token RPAREN
+%token SEMICOLON
+%token COMMA
+
+%%
+
+program:
+    declarations
+;
+declarations:
+    declarations declaration
+    |
+;
+
+declaration:
+    class_decl
+    | global_var_decl
+;
+
+class_decl:
+    KW_CLASS ID LBRACE class_members RBRACE SEMICOLON
+;
+
+class_members:
+    class_members class_member
+    |
+;
+
+class_member:
+    field_decl
+    | method_decl
+;
+
+field_decl:
+    type ID SEMICOLON
+;
+
+method_decl:
+    type ID LPAREN parameters_opt RPAREN block
+;
+
+parameters_opt:
+    parameters
+    |
+;
+
+parameters:
+    parameters COMMA parameter
+    | parameter
+;
+
+parameter:
+    type ID
+;
+
+block:
+    LBRACE block_items RBRACE
+;
+
+block_items:
+    block_items block_item
+    |
+;
+
+block_item:
+    var_decl
+    | block
+;
+
+var_decl:
+    type ID SEMICOLON
+;
+
+global_var_decl:
+    type ID SEMICOLON
+;
+
+type:
+    KW_INT
+    | KW_FLOAT
+    | KW_DOUBLE
+    | KW_CHAR
+    | KW_BOOL
+    | KW_STRING
+    | KW_VOID
+    | ID
+;

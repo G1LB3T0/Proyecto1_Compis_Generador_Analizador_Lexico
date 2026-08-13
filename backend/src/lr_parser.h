@@ -2,6 +2,7 @@
 #include "slr_table.h"
 #include "token_stream.h"
 #include "parse_step.h"
+#include "parse_tree.h"
 #include <vector>
 #include <string>
 
@@ -12,6 +13,7 @@ struct LRParseResult {
     std::vector<std::string> errors; // todos los errores acumulados (panic mode)
     std::vector<int> reductions;
     std::vector<ParseStep> trace;    // traza paso a paso
+    std::shared_ptr<ParseTreeNode> parse_tree; // CST si la cadena fue aceptada
 };
 
 // ============================================================

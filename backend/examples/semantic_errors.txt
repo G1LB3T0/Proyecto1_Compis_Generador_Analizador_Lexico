@@ -1,0 +1,11 @@
+class Cuenta {
+    int saldo;
+    float saldo;
+    Misterio dato;
+    void operar(int x, int x) {
+        Fantasma local;
+    }
+};
+class Cuenta {
+    int otro;
+};
