@@ -476,7 +476,7 @@ main.main {
   padding: 60px 20px;
   color: var(--overlay);
 }
-.empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+.empty-state .icon { margin-bottom: 12px; }
 .empty-state p { font-size: 0.9rem; }
 
 /* ── Conflict warning ───────────────────────────────────────── */
@@ -562,6 +562,13 @@ main.main {
   color: var(--blue);
 }
 
+/* ── Lookaheads LR(1) ───────────────────────────────────────── */
+.lr1-la {
+  color: var(--peach);
+  font-size: .78rem;
+  margin-left: 4px;
+}
+
 /* ── Traza de análisis ───────────────────────────────────────── */
 .trace-title {
   font-size: .8rem;
@@ -608,6 +615,54 @@ main.main {
 .trace-act-error  { color: var(--red)    !important; }
 .trace-act-accept { color: var(--green)  !important; font-weight: 700; }
 .trace-act-match  { color: var(--yellow) !important; }
+
+/* ── Árbol de derivación ─────────────────────────────────────── */
+.tree-wrap {
+  overflow: auto;
+  background: var(--mantle);
+  border-radius: var(--radius);
+  padding: 24px 16px 16px;
+  margin-top: 16px;
+}
+.tree-canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+/* ── SVG icon helpers ────────────────────────────────────────── */
+.btn-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+.chevron-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: -2px;
+  transition: transform .2s ease;
+}
+.inline-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+.empty-icon {
+  width: 52px;
+  height: 52px;
+  opacity: .35;
+  display: block;
+  margin: 0 auto 16px;
+}
+.step-toggle .chevron-icon { display: block; }
+.step-toggle.open .chevron-icon { transform: rotate(180deg); }
+.lr0-state-hdr .chevron-icon { display: block; }
+.lr0-state-hdr .chevron-icon.open { transform: rotate(180deg); }
+.conflict-banner { display: flex; align-items: center; gap: 6px; }
 
 /* ── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
