@@ -1,0 +1,10 @@
+class Cuenta {
+    int saldo;
+    float retirar(float monto) {
+        bool autorizado;
+        {
+            int temporal;
+        }
+    }
+};
+Cuenta principal;

@@ -21,6 +21,9 @@
 #include "token_stream.h"
 #include "parse_step.h"
 #include "parse_tree.h"
+#include "ast.h"
+#include "semantic_analyzer.h"
+#include "semantic_json.h"
 
 // ── JSON helpers ──────────────────────────────────────────────
 
@@ -97,11 +100,13 @@ static std::vector<Token> tokenize(const DFA& dfa,
     int line = 1, col = 1;
 
     while (pos < input.size()) {
+        // La ubicación del token es el inicio del lexema, no la posición del
+        // último estado aceptante. El AST y los diagnósticos dependen de ello.
+        const int tokenLine = line;
+        const int tokenCol  = col;
         int state = dfa.start_state;
         int lastRule = -1;
         size_t lastPos = pos;
-        int lastLine = line, lastCol = col;
-        int curLine = line, curCol = col;
         size_t fwd = pos;
 
         while (fwd < input.size()) {
@@ -112,9 +117,7 @@ static std::vector<Token> tokenize(const DFA& dfa,
             if (dfa.states[state].is_accepting) {
                 lastRule = dfa.states[state].accepting_rule;
                 lastPos  = fwd + 1;
-                lastLine = curLine; lastCol = curCol;
             }
-            if (c == '\n') { curLine++; curCol = 1; } else curCol++;
             fwd++;
         }
 
@@ -131,7 +134,7 @@ static std::vector<Token> tokenize(const DFA& dfa,
 
         std::string name = (lastRule < (int)names.size()) ? names[lastRule] : "";
         if (!name.empty())
-            result.push_back(Token(name, lexeme, lastLine, lastCol));
+            result.push_back(Token(name, lexeme, tokenLine, tokenCol));
     }
     result.push_back(Token("$", "$", line, col));
     return result;
@@ -251,6 +254,9 @@ static std::string lrTableToJson(
     bool hasConflicts,
     const std::vector<ParseConflict>& conflicts)
 {
+    // El contrato actual solo expone has_conflicts; se conserva el parámetro
+    // para añadir el detalle de conflictos sin cambiar la firma pública.
+    (void)conflicts;
     // Recolectar headers
     std::vector<std::string> actHdrs;
     for (const auto& t : g.terminals) actHdrs.push_back(t);
@@ -433,6 +439,18 @@ static std::string treeToJson(const TreeNodePtr& node) {
     return r + "]}";
 }
 
+static std::string treeToJson(const std::shared_ptr<ParseTreeNode>& node) {
+    if (!node) return "null";
+    std::string r = "{\"label\":" + jstr(node->symbol)
+                  + ",\"lexema\":" + jstr(node->lexeme)
+                  + ",\"children\":[";
+    for (size_t i = 0; i < node->children.size(); i++) {
+        if (i) r += ",";
+        r += treeToJson(node->children[i]);
+    }
+    return r + "]}";
+}
+
 static std::string traceToJson(const std::vector<ParseStep>& trace) {
     std::string r = "[";
     for (size_t i = 0; i < trace.size(); i++) {
@@ -455,6 +473,18 @@ static std::string tokensToJson(const std::vector<Token>& tokens) {
         if (i + 1 < tokens.size()) r += ",";
     }
     return r + "]";
+}
+
+// El AST mínimo tiene un contrato de nombres explícito. Una gramática antigua
+// puede seguir analizándose, pero no debe producir un modelo semántico vacío
+// que parezca válido si no describe clases, declaraciones y bloques.
+static bool supportsSemanticAnalysis(const Grammar& g) {
+    static const char* required[] = {
+        "class_decl", "field_decl", "method_decl", "var_decl", "block", "type"
+    };
+    for (const char* symbol : required)
+        if (!g.isNonTerminal(symbol)) return false;
+    return true;
 }
 
 // ── MAIN ──────────────────────────────────────────────────────
@@ -595,6 +625,7 @@ int main(int argc, char* argv[]) {
         std::vector<std::string> errors;
         std::vector<ParseStep>   trace;
         TreeNodePtr              tree;
+        std::shared_ptr<ParseTreeNode> parseTree;
 
         LRParser  lrParser;
         LL1Parser ll1Parser;
@@ -605,7 +636,7 @@ int main(int argc, char* argv[]) {
             accepted = res.accepted;
             errors   = res.errors;
             trace    = res.trace;
-            tree     = res.tree;
+            parseTree = res.parse_tree;
         } else if (useLALR) {
             TokenStream ts(filtered);
             auto res = lrParser.parse(lalrTable.action, lalrTable.goto_table,
@@ -613,7 +644,7 @@ int main(int argc, char* argv[]) {
             accepted = res.accepted;
             errors   = res.errors;
             trace    = res.trace;
-            tree     = res.tree;
+            parseTree = res.parse_tree;
         } else {
             TokenStream ts(filtered);
             auto res = ll1Parser.parse(ll1Table, grammarLL1, ts);
@@ -627,9 +658,31 @@ int main(int argc, char* argv[]) {
         out += ",\"result\":{\"accepted\":" + jbool(accepted)
             + ",\"errors\":" + jstrArr(errors)
             + ",\"trace\":"  + traceToJson(trace)
-            + ",\"tree\":"   + treeToJson(tree) + "}";
+            + ",\"tree\":"   + (useLL1 ? treeToJson(tree)
+                                             : treeToJson(parseTree)) + "}";
+
+        // El avance semántico se ejecuta sobre un AST común. LL(1) se deja
+        // explícitamente fuera hasta normalizar su gramática transformada.
+        if (!accepted) {
+            out += ",\"semantic\":" + semanticSkippedToJson(
+                "El programa contiene errores sintácticos");
+        } else if (useLL1) {
+            out += ",\"semantic\":" + semanticSkippedToJson(
+                "El avance semántico actual está habilitado para SLR y LALR");
+        } else if (!supportsSemanticAnalysis(grammar)) {
+            out += ",\"semantic\":" + semanticSkippedToJson(
+                "La gramática no define el subconjunto semántico documentado");
+        } else {
+            ASTBuilder astBuilder;
+            std::shared_ptr<ASTNode> ast = astBuilder.build(parseTree);
+            SemanticAnalyzer semanticAnalyzer;
+            SemanticModel semantic = semanticAnalyzer.analyze(ast);
+            out += ",\"semantic\":" + semanticModelToJson(semantic);
+        }
     } else {
         out += ",\"tokens\":null,\"result\":null";
+        out += ",\"semantic\":" + semanticSkippedToJson(
+            "No se proporcionó una cadena de entrada");
     }
 
     out += "}";

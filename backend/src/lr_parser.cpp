@@ -38,7 +38,9 @@ LRParseResult LRParser::run(
 
     std::vector<int>         stateStack  = {0};
     std::vector<std::string> symbolStack = {"$"};
-    std::vector<TreeNodePtr> nodeStk;   // árbol paralelo
+    // Pila semántica paralela. A diferencia de symbolStack, no contiene el
+    // marcador $, porque cada entrada representa un símbolo real del árbol.
+    std::vector<std::shared_ptr<ParseTreeNode>> nodeStack;
 
     while (true) {
         if ((int)result.errors.size() >= MAX_ERRORS) {
@@ -118,10 +120,10 @@ LRParseResult LRParser::run(
                     "  →  Shift, ir a estado " + std::to_string(act.value);
                 result.trace.push_back(step);
             }
-            Token consumed = stream.consume();
-            symbolStack.push_back(consumed.tipo);
+            Token shifted = stream.consume();
+            symbolStack.push_back(shifted.tipo);
             stateStack.push_back(act.value);
-            nodeStk.push_back(std::make_shared<TreeNode>(consumed.tipo, consumed.lexema));
+            nodeStack.push_back(makeTerminalNode(shifted));
 
         } else if (act.type == ActionType::REDUCE) {
             const Production& prod = grammar.productions[act.value];
@@ -145,17 +147,12 @@ LRParseResult LRParser::run(
                 result.trace.push_back(step);
             }
 
-            // Construir nodo del árbol
-            auto parent = std::make_shared<TreeNode>(prod.head);
-            if (epsilonProd) {
-                parent->children.push_back(std::make_shared<TreeNode>("ε", "ε"));
-            } else {
-                int base = (int)nodeStk.size() - popCount;
-                for (int k = base; k < (int)nodeStk.size(); k++)
-                    parent->children.push_back(nodeStk[k]);
-                nodeStk.resize(base);
+            std::vector<std::shared_ptr<ParseTreeNode>> children;
+            if (popCount > 0) {
+                const size_t firstChild = nodeStack.size() - popCount;
+                children.assign(nodeStack.begin() + firstChild, nodeStack.end());
+                nodeStack.erase(nodeStack.begin() + firstChild, nodeStack.end());
             }
-            nodeStk.push_back(parent);
 
             for (int k = 0; k < popCount; k++) {
                 stateStack.pop_back();
@@ -163,6 +160,8 @@ LRParseResult LRParser::run(
             }
 
             symbolStack.push_back(prod.head);
+            nodeStack.push_back(
+                makeNonTerminalNode(prod.head, act.value, children));
             int newTop = stateStack.back();
 
             auto itGoto = gotoMap.find(newTop);
@@ -185,7 +184,8 @@ LRParseResult LRParser::run(
                 result.trace.push_back(step);
             }
             result.accepted = result.errors.empty();
-            if (!nodeStk.empty()) result.tree = nodeStk.back();
+            if (result.accepted && !nodeStack.empty())
+                result.parse_tree = nodeStack.back();
             return result;
         }
     }

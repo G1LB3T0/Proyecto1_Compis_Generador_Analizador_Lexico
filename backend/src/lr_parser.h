@@ -12,8 +12,8 @@ struct LRParseResult {
     std::string error_msg;
     std::vector<std::string> errors;
     std::vector<int> reductions;
-    std::vector<ParseStep> trace;
-    TreeNodePtr tree;                // árbol de derivación
+    std::vector<ParseStep> trace;    // traza paso a paso
+    std::shared_ptr<ParseTreeNode> parse_tree; // CST si la cadena fue aceptada
 };
 
 // ============================================================
