@@ -180,6 +180,10 @@ void LALRTable::build(const LR0Automaton& lr0, const FirstFollow& ff) {
             lalrTrans[lalrFrom][sym] = lr1ToLalr[lr1To];
     }
 
+    // Exponer para serialización externa
+    mergedStates = lalrStates;
+    mergedTrans  = lalrTrans;
+
     // ── Paso 5: llenar ACTION / GOTO con los estados LALR ────
     for (int i = 0; i < (int)lalrStates.size(); i++) {
         for (const auto& item : lalrStates[i]) {

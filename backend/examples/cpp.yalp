@@ -1,0 +1,305 @@
+/* cpp.yalp
+   Gramática de subconjunto de C++
+   Compatible con: LALR(1) y SLR(1).
+   LL(1): NO compatible (recursión izquierda en expresiones y dangling-else).
+
+   Soporta:
+     - #include <header> / #include "header.h"
+     - using namespace std;
+     - static/const/inline funciones
+     - Funciones con parámetros (incluyendo const y punteros básicos)
+     - Variables con tipos builtin (int, float, bool, void, string, char…)
+     - if/else, while, for, return
+     - Expresiones: aritmética, lógica, comparación, asignación, cout<<, cin>>
+     - Llamadas: foo(x), obj.m(), ns::func()
+
+   NO soporta (C++ demasiado complejo para LALR simple):
+     - Tipos calificados como tipo de variable: std::string x;
+     - Tipos puntero/referencia en declaraciones: int* p;
+     - Múltiples declaradores: int a, b, c;
+     - try / catch / throw
+     - Templates, clases, operadores sobrecargados
+*/
+
+%token KW_INT KW_FLOAT KW_DOUBLE KW_CHAR KW_BOOL KW_VOID KW_STRING
+%token KW_IF KW_ELSE KW_WHILE KW_FOR KW_RETURN
+%token KW_TRUE KW_FALSE KW_CONST KW_STATIC
+%token KW_INCLUDE KW_USING KW_NAMESPACE KW_STD
+%token KW_COUT KW_CIN KW_ENDL
+%token ID INT_LIT FLOAT_LIT STRING_LIT
+%token OP_ASSIGN OP_PLUS OP_MINUS OP_MUL OP_DIV OP_MOD
+%token OP_EQ OP_NEQ OP_LT OP_GT OP_LTE OP_GTE
+%token OP_AND OP_OR OP_NOT
+%token OP_INC OP_DEC OP_PLUS_ASSIGN OP_MIN_ASSIGN
+%token OP_LSHIFT OP_RSHIFT
+%token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
+%token SEMICOLON COMMA DOT SCOPE HASH
+
+%%
+
+/* ── Programa ─────────────────────────────────────────────── */
+
+program:
+    top_list
+;
+
+top_list:
+    top_list top_decl
+    |
+;
+
+top_decl:
+    include_dir
+    | using_dir
+    | func_def
+    | var_decl_stmt
+;
+
+/* ── Directivas de preprocesador ──────────────────────────── */
+
+include_dir:
+    HASH KW_INCLUDE OP_LT ipath OP_GT
+    | HASH KW_INCLUDE STRING_LIT
+;
+
+/* Ruta del header: iostream | string | math.h | vector */
+/* Acepta keywords que coinciden con nombres de headers (string, etc.) */
+ipath:
+    iname
+    | ipath DOT iname
+;
+
+iname:
+    ID
+    | KW_STRING
+    | KW_INT
+    | KW_FLOAT
+    | KW_DOUBLE
+    | KW_CHAR
+    | KW_BOOL
+    | KW_VOID
+;
+
+/* using namespace std; */
+using_dir:
+    KW_USING KW_NAMESPACE nsname SEMICOLON
+;
+
+nsname:
+    KW_STD
+    | ID
+;
+
+/* ── Calificadores (static, const, inline) ────────────────── */
+
+quals:
+    quals qual
+    |
+;
+
+qual:
+    KW_STATIC
+    | KW_CONST
+;
+
+/* ── Tipos base (builtin) ─────────────────────────────────── */
+
+btype:
+    KW_INT
+    | KW_FLOAT
+    | KW_DOUBLE
+    | KW_CHAR
+    | KW_BOOL
+    | KW_VOID
+    | KW_STRING
+;
+
+/* ── Definición de función ────────────────────────────────── */
+
+func_def:
+    quals btype ID LPAREN params RPAREN LBRACE stmt_list RBRACE
+;
+
+params:
+    plist
+    |
+;
+
+plist:
+    plist COMMA param
+    | param
+;
+
+/* Soporta: int n | const int n | char* p (como char OP_MUL ID) */
+param:
+    quals btype ID
+    | quals btype OP_MUL ID
+    | quals btype ID LBRACKET RBRACKET
+;
+
+/* ── Lista de sentencias ──────────────────────────────────── */
+
+stmt_list:
+    stmt_list stmt
+    |
+;
+
+stmt:
+    var_decl_stmt
+    | expr SEMICOLON
+    | if_stmt
+    | while_stmt
+    | for_stmt
+    | return_stmt
+    | block
+;
+
+block:
+    LBRACE stmt_list RBRACE
+;
+
+/* ── Declaración de variable local ───────────────────────── */
+
+var_decl_stmt:
+    quals btype ID SEMICOLON
+    | quals btype ID OP_ASSIGN expr SEMICOLON
+    | quals btype ID LBRACKET expr RBRACKET SEMICOLON
+;
+
+/* ── Sentencias de control ────────────────────────────────── */
+
+if_stmt:
+    KW_IF LPAREN expr RPAREN block
+    | KW_IF LPAREN expr RPAREN block KW_ELSE block
+    | KW_IF LPAREN expr RPAREN block KW_ELSE if_stmt
+;
+
+while_stmt:
+    KW_WHILE LPAREN expr RPAREN block
+;
+
+for_stmt:
+    KW_FOR LPAREN for_init expr SEMICOLON for_upd RPAREN block
+;
+
+for_init:
+    quals btype ID OP_ASSIGN expr SEMICOLON
+    | quals btype ID SEMICOLON
+    | expr SEMICOLON
+    | SEMICOLON
+;
+
+for_upd:
+    expr
+    |
+;
+
+return_stmt:
+    KW_RETURN SEMICOLON
+    | KW_RETURN expr SEMICOLON
+;
+
+/* ── Expresiones ─────────────────────────────────────────── */
+
+expr:
+    expr OP_ASSIGN logor
+    | expr OP_PLUS_ASSIGN logor
+    | expr OP_MIN_ASSIGN logor
+    | logor
+;
+
+logor:
+    logor OP_OR logand
+    | logand
+;
+
+logand:
+    logand OP_AND equ
+    | equ
+;
+
+equ:
+    equ OP_EQ cmp
+    | equ OP_NEQ cmp
+    | cmp
+;
+
+cmp:
+    cmp OP_LT shft
+    | cmp OP_GT shft
+    | cmp OP_LTE shft
+    | cmp OP_GTE shft
+    | shft
+;
+
+/* << y >> también sirven para cout/cin */
+shft:
+    shft OP_LSHIFT add
+    | shft OP_RSHIFT add
+    | add
+;
+
+add:
+    add OP_PLUS mul
+    | add OP_MINUS mul
+    | mul
+;
+
+mul:
+    mul OP_MUL unary
+    | mul OP_DIV unary
+    | mul OP_MOD unary
+    | unary
+;
+
+unary:
+    OP_NOT unary
+    | OP_MINUS unary
+    | post
+;
+
+post:
+    post OP_INC
+    | post OP_DEC
+    | call
+;
+
+call:
+    call LPAREN arglist RPAREN
+    | call LBRACKET expr RBRACKET
+    | call DOT sname
+    | call SCOPE sname
+    | atom
+;
+
+/* Nombres después de . o :: pueden ser keywords (std::string, obj.string) */
+sname:
+    ID
+    | KW_STRING | KW_INT | KW_FLOAT | KW_DOUBLE | KW_CHAR | KW_BOOL
+    | KW_COUT | KW_CIN | KW_ENDL
+;
+
+/* KW_STD en atom permite: std::cerr, std::cout, std::string, etc. */
+atom:
+    ID
+    | INT_LIT
+    | FLOAT_LIT
+    | STRING_LIT
+    | KW_TRUE
+    | KW_FALSE
+    | KW_COUT
+    | KW_CIN
+    | KW_ENDL
+    | KW_STD
+    | LPAREN expr RPAREN
+;
+
+arglist:
+    args
+    |
+;
+
+args:
+    args COMMA expr
+    | expr
+;

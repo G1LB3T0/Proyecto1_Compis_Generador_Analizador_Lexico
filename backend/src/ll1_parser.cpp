@@ -15,10 +15,16 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
         result.errors.push_back(msg);
     };
 
-    // Usamos vector como pila (back = tope) para poder iterar
+    // Pila de símbolos (back = tope)
     std::vector<std::string> stk;
     stk.push_back("$");
     stk.push_back(grammar.start_symbol);
+
+    // Pila paralela de nodos del árbol
+    auto root = std::make_shared<TreeNode>(grammar.start_symbol);
+    std::vector<TreeNodePtr> nodeStk;
+    nodeStk.push_back(nullptr);   // para el $
+    nodeStk.push_back(root);
 
     while (!stk.empty()) {
         if ((int)result.errors.size() >= MAX_ERRORS) {
@@ -47,6 +53,7 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
         if (top == "$" && lookahead == "$") {
             if (doTrace) { step.action = "ACCEPT ✓"; result.trace.push_back(step); }
             result.accepted = result.errors.empty();
+            result.tree = root;
             return result;
         }
 
@@ -57,6 +64,9 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
                         "  →  consumir \"" + stream.lookahead().lexema + "\"";
                     result.trace.push_back(step);
                 }
+                // Registrar lexema en el nodo hoja
+                if (nodeStk.back()) nodeStk.back()->lexema = stream.lookahead().lexema;
+                nodeStk.pop_back();
                 stk.pop_back();
                 stream.consume();
             } else {
@@ -73,6 +83,7 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
                     result.trace.push_back(step);
                 }
                 addError(msg);
+                nodeStk.pop_back();
                 stk.pop_back();
             }
 
@@ -123,10 +134,27 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
                     result.trace.push_back(step);
                 }
 
+                // Nodo padre actual (tope de nodeStk = nodo para 'top')
+                TreeNodePtr parentNode = nodeStk.back();
+                nodeStk.pop_back();
                 stk.pop_back();
-                if (!epsilonProd) {
-                    for (int k = (int)prod.body.size() - 1; k >= 0; k--)
+
+                if (epsilonProd) {
+                    if (parentNode)
+                        parentNode->children.push_back(
+                            std::make_shared<TreeNode>("ε", "ε"));
+                } else {
+                    // Crear hijos en orden y adjuntarlos
+                    std::vector<TreeNodePtr> children;
+                    for (const auto& sym : prod.body)
+                        children.push_back(std::make_shared<TreeNode>(sym));
+                    if (parentNode) parentNode->children = children;
+
+                    // Empujar en orden inverso (para que el primero quede en el tope)
+                    for (int k = (int)prod.body.size() - 1; k >= 0; k--) {
                         stk.push_back(prod.body[k]);
+                        nodeStk.push_back(children[k]);
+                    }
                 }
             }
 
@@ -136,7 +164,9 @@ LL1ParseResult LL1Parser::parse(const LL1Table& table,
         }
     }
 
-    if (result.errors.empty())
+    if (result.errors.empty()) {
         result.accepted = true;
+        result.tree = root;
+    }
     return result;
 }

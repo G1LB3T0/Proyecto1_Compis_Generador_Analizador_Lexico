@@ -49,6 +49,10 @@ public:
     std::map<int, std::map<std::string, int>>    goto_table;
     std::vector<ParseConflict> conflicts;
 
+    // Estados LR(1) fusionados + transiciones — para visualización externa
+    std::vector<LR1ItemSet>                       mergedStates;
+    std::map<int, std::map<std::string, int>>     mergedTrans;
+
     // Construye la tabla LALR desde el autómata LR(0) y los FIRST/FOLLOW
     void build(const LR0Automaton& lr0, const FirstFollow& ff);
 

@@ -20,6 +20,7 @@
 #include "grammar_transform.h"
 #include "token_stream.h"
 #include "parse_step.h"
+#include "parse_tree.h"
 
 // ── JSON helpers ──────────────────────────────────────────────
 
@@ -351,6 +352,87 @@ static std::string ll1TableToJson(const LL1Table& tbl, const Grammar& g) {
     return r;
 }
 
+// Serializa ítem LR(1) agrupando lookaheads del mismo (prod,dot) → "E → T • E'  {+, $}"
+static std::string lr1ItemStr(
+    const std::map<std::pair<int,int>, std::set<std::string>>& grouped,
+    const std::pair<int,int>& key,
+    const Grammar& aug)
+{
+    const auto& prod = aug.productions[key.first];
+    int  dot = key.second;
+    bool eps = (prod.body.size() == 1 && prod.body[0].empty());
+    std::string s = prod.head + " → ";
+    if (eps) {
+        s += (dot == 0) ? "• ε" : "ε •";
+    } else {
+        for (int k = 0; k <= (int)prod.body.size(); k++) {
+            if (k == dot) s += "•";
+            if (k < (int)prod.body.size()) {
+                if (k == dot) s += " ";
+                s += prod.body[k];
+                if (k + 1 < (int)prod.body.size() || dot <= (int)prod.body.size()) s += " ";
+            }
+        }
+        while (!s.empty() && s.back() == ' ') s.pop_back();
+    }
+    const auto& las = grouped.at(key);
+    s += "  {";
+    bool first = true;
+    for (const auto& la : las) {
+        if (!first) s += ", ";
+        s += la;
+        first = false;
+    }
+    s += "}";
+    return s;
+}
+
+static std::string lr1AutomatonToJson(
+    const std::vector<LR1ItemSet>& states,
+    const std::map<int, std::map<std::string, int>>& trans,
+    const Grammar& aug)
+{
+    std::string r = "{\"count\":" + jint(states.size()) + ",\"states\":[";
+    for (size_t i = 0; i < states.size(); i++) {
+        std::map<std::pair<int,int>, std::set<std::string>> grouped;
+        for (const auto& item : states[i])
+            grouped[{item.prod_idx, item.dot}].insert(item.lookahead);
+
+        r += "{\"id\":" + jint(i) + ",\"items\":[";
+        bool fi = true;
+        for (const auto& [key, _] : grouped) {
+            if (!fi) r += ",";
+            r += jstr(lr1ItemStr(grouped, key, aug));
+            fi = false;
+        }
+        r += "],\"transitions\":{";
+        auto it = trans.find(i);
+        if (it != trans.end()) {
+            bool ft = true;
+            for (const auto& [sym, dst] : it->second) {
+                if (!ft) r += ",";
+                r += jstr(sym) + ":" + jint(dst);
+                ft = false;
+            }
+        }
+        r += "}}";
+        if (i + 1 < states.size()) r += ",";
+    }
+    return r + "]}";
+}
+
+static std::string treeToJson(const TreeNodePtr& node) {
+    if (!node) return "null";
+    std::string r = "{\"label\":" + jstr(node->label)
+                  + ",\"lexema\":" + jstr(node->lexema)
+                  + ",\"children\":[";
+    for (size_t i = 0; i < node->children.size(); i++) {
+        if (i) r += ",";
+        r += treeToJson(node->children[i]);
+    }
+    return r + "]}";
+}
+
 static std::string traceToJson(const std::vector<ParseStep>& trace) {
     std::string r = "[";
     for (size_t i = 0; i < trace.size(); i++) {
@@ -491,7 +573,13 @@ int main(int argc, char* argv[]) {
         out += ",\"ff_ll1\":" + ffToJson(ffLL1, grammarLL1);
     else
         out += ",\"ff_ll1\":null";
-    out += ",\"lr0\":" + lr0ToJson(lr0);
+    if (useSLR)
+        out += ",\"lr0\":" + lr0ToJson(lr0) + ",\"lr1\":null";
+    else if (useLALR)
+        out += ",\"lr0\":null,\"lr1\":" + lr1AutomatonToJson(
+                    lalrTable.mergedStates, lalrTable.mergedTrans, lr0.augmented);
+    else
+        out += ",\"lr0\":null,\"lr1\":null";
     out += ",\"table\":" + tableJson;
 
     // ── Si hay input: tokenizar + parsear ────────────────────
@@ -506,6 +594,7 @@ int main(int argc, char* argv[]) {
         bool accepted = false;
         std::vector<std::string> errors;
         std::vector<ParseStep>   trace;
+        TreeNodePtr              tree;
 
         LRParser  lrParser;
         LL1Parser ll1Parser;
@@ -516,6 +605,7 @@ int main(int argc, char* argv[]) {
             accepted = res.accepted;
             errors   = res.errors;
             trace    = res.trace;
+            tree     = res.tree;
         } else if (useLALR) {
             TokenStream ts(filtered);
             auto res = lrParser.parse(lalrTable.action, lalrTable.goto_table,
@@ -523,18 +613,21 @@ int main(int argc, char* argv[]) {
             accepted = res.accepted;
             errors   = res.errors;
             trace    = res.trace;
+            tree     = res.tree;
         } else {
             TokenStream ts(filtered);
             auto res = ll1Parser.parse(ll1Table, grammarLL1, ts);
             accepted = res.accepted;
             errors   = res.errors;
             trace    = res.trace;
+            tree     = res.tree;
         }
 
         out += ",\"tokens\":" + tokensToJson(tokens);
         out += ",\"result\":{\"accepted\":" + jbool(accepted)
             + ",\"errors\":" + jstrArr(errors)
-            + ",\"trace\":"  + traceToJson(trace) + "}";
+            + ",\"trace\":"  + traceToJson(trace)
+            + ",\"tree\":"   + treeToJson(tree) + "}";
     } else {
         out += ",\"tokens\":null,\"result\":null";
     }

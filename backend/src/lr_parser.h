@@ -2,16 +2,18 @@
 #include "slr_table.h"
 #include "token_stream.h"
 #include "parse_step.h"
+#include "parse_tree.h"
 #include <vector>
 #include <string>
 
 // Resultado del análisis LR (sirve para SLR y LALR)
 struct LRParseResult {
     bool        accepted     = false;
-    std::string error_msg;           // primer error (compatibilidad)
-    std::vector<std::string> errors; // todos los errores acumulados (panic mode)
+    std::string error_msg;
+    std::vector<std::string> errors;
     std::vector<int> reductions;
-    std::vector<ParseStep> trace;    // traza paso a paso
+    std::vector<ParseStep> trace;
+    TreeNodePtr tree;                // árbol de derivación
 };
 
 // ============================================================

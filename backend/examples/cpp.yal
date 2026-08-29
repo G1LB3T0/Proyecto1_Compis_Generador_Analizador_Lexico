@@ -1,0 +1,67 @@
+let letter  = ['a'-'z' 'A'-'Z' '_']
+let alnum   = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+let digit   = ['0'-'9']
+let ws      = [' ' '\t' '\r' '\n']+
+
+rule tokens =
+    ws                              { }
+  | '/' '/'  [^'\n']*               { }
+  | '"' [^'"']* '"'                 { std::cout << "<STRING_LIT, \"" << lxm << "\">\n"; }
+  | "int"                           { std::cout << "<KW_INT, \"" << lxm << "\">\n"; }
+  | "float"                         { std::cout << "<KW_FLOAT, \"" << lxm << "\">\n"; }
+  | "double"                        { std::cout << "<KW_DOUBLE, \"" << lxm << "\">\n"; }
+  | "char"                          { std::cout << "<KW_CHAR, \"" << lxm << "\">\n"; }
+  | "bool"                          { std::cout << "<KW_BOOL, \"" << lxm << "\">\n"; }
+  | "void"                          { std::cout << "<KW_VOID, \"" << lxm << "\">\n"; }
+  | "string"                        { std::cout << "<KW_STRING, \"" << lxm << "\">\n"; }
+  | "if"                            { std::cout << "<KW_IF, \"" << lxm << "\">\n"; }
+  | "else"                          { std::cout << "<KW_ELSE, \"" << lxm << "\">\n"; }
+  | "while"                         { std::cout << "<KW_WHILE, \"" << lxm << "\">\n"; }
+  | "for"                           { std::cout << "<KW_FOR, \"" << lxm << "\">\n"; }
+  | "return"                        { std::cout << "<KW_RETURN, \"" << lxm << "\">\n"; }
+  | "true"                          { std::cout << "<KW_TRUE, \"" << lxm << "\">\n"; }
+  | "false"                         { std::cout << "<KW_FALSE, \"" << lxm << "\">\n"; }
+  | "const"                         { std::cout << "<KW_CONST, \"" << lxm << "\">\n"; }
+  | "static"                        { std::cout << "<KW_STATIC, \"" << lxm << "\">\n"; }
+  | "include"                       { std::cout << "<KW_INCLUDE, \"" << lxm << "\">\n"; }
+  | "using"                         { std::cout << "<KW_USING, \"" << lxm << "\">\n"; }
+  | "namespace"                     { std::cout << "<KW_NAMESPACE, \"" << lxm << "\">\n"; }
+  | "std"                           { std::cout << "<KW_STD, \"" << lxm << "\">\n"; }
+  | "cout"                          { std::cout << "<KW_COUT, \"" << lxm << "\">\n"; }
+  | "cin"                           { std::cout << "<KW_CIN, \"" << lxm << "\">\n"; }
+  | "endl"                          { std::cout << "<KW_ENDL, \"" << lxm << "\">\n"; }
+  | letter alnum*                   { std::cout << "<ID, \"" << lxm << "\">\n"; }
+  | digit+ '.' digit+               { std::cout << "<FLOAT_LIT, \"" << lxm << "\">\n"; }
+  | digit+                          { std::cout << "<INT_LIT, \"" << lxm << "\">\n"; }
+  | '+' '+'                         { std::cout << "<OP_INC, \"" << lxm << "\">\n"; }
+  | '-' '-'                         { std::cout << "<OP_DEC, \"" << lxm << "\">\n"; }
+  | '+' '='                         { std::cout << "<OP_PLUS_ASSIGN, \"" << lxm << "\">\n"; }
+  | '-' '='                         { std::cout << "<OP_MIN_ASSIGN, \"" << lxm << "\">\n"; }
+  | '=' '='                         { std::cout << "<OP_EQ, \"" << lxm << "\">\n"; }
+  | '!' '='                         { std::cout << "<OP_NEQ, \"" << lxm << "\">\n"; }
+  | '<' '='                         { std::cout << "<OP_LTE, \"" << lxm << "\">\n"; }
+  | '>' '='                         { std::cout << "<OP_GTE, \"" << lxm << "\">\n"; }
+  | '<' '<'                         { std::cout << "<OP_LSHIFT, \"" << lxm << "\">\n"; }
+  | '>' '>'                         { std::cout << "<OP_RSHIFT, \"" << lxm << "\">\n"; }
+  | '&' '&'                         { std::cout << "<OP_AND, \"" << lxm << "\">\n"; }
+  | '|' '|'                         { std::cout << "<OP_OR, \"" << lxm << "\">\n"; }
+  | '+'                             { std::cout << "<OP_PLUS, \"" << lxm << "\">\n"; }
+  | '-'                             { std::cout << "<OP_MINUS, \"" << lxm << "\">\n"; }
+  | '*'                             { std::cout << "<OP_MUL, \"" << lxm << "\">\n"; }
+  | '/'                             { std::cout << "<OP_DIV, \"" << lxm << "\">\n"; }
+  | '%'                             { std::cout << "<OP_MOD, \"" << lxm << "\">\n"; }
+  | '<'                             { std::cout << "<OP_LT, \"" << lxm << "\">\n"; }
+  | '>'                             { std::cout << "<OP_GT, \"" << lxm << "\">\n"; }
+  | '!'                             { std::cout << "<OP_NOT, \"" << lxm << "\">\n"; }
+  | '='                             { std::cout << "<OP_ASSIGN, \"" << lxm << "\">\n"; }
+  | '('                             { std::cout << "<LPAREN, \"" << lxm << "\">\n"; }
+  | ')'                             { std::cout << "<RPAREN, \"" << lxm << "\">\n"; }
+  | '{'                             { std::cout << "<LBRACE, \"" << lxm << "\">\n"; }
+  | '}'                             { std::cout << "<RBRACE, \"" << lxm << "\">\n"; }
+  | '['                             { std::cout << "<LBRACKET, \"" << lxm << "\">\n"; }
+  | ']'                             { std::cout << "<RBRACKET, \"" << lxm << "\">\n"; }
+  | ';'                             { std::cout << "<SEMICOLON, \"" << lxm << "\">\n"; }
+  | ','                             { std::cout << "<COMMA, \"" << lxm << "\">\n"; }
+  | '.'                             { std::cout << "<DOT, \"" << lxm << "\">\n"; }
+  | ':' ':'                         { std::cout << "<SCOPE, \"" << lxm << "\">\n"; }
+  | '#'                             { std::cout << "<HASH, \"" << lxm << "\">\n"; }

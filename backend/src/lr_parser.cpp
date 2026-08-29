@@ -38,6 +38,7 @@ LRParseResult LRParser::run(
 
     std::vector<int>         stateStack  = {0};
     std::vector<std::string> symbolStack = {"$"};
+    std::vector<TreeNodePtr> nodeStk;   // árbol paralelo
 
     while (true) {
         if ((int)result.errors.size() >= MAX_ERRORS) {
@@ -117,8 +118,10 @@ LRParseResult LRParser::run(
                     "  →  Shift, ir a estado " + std::to_string(act.value);
                 result.trace.push_back(step);
             }
-            symbolStack.push_back(stream.consume().tipo);
+            Token consumed = stream.consume();
+            symbolStack.push_back(consumed.tipo);
             stateStack.push_back(act.value);
+            nodeStk.push_back(std::make_shared<TreeNode>(consumed.tipo, consumed.lexema));
 
         } else if (act.type == ActionType::REDUCE) {
             const Production& prod = grammar.productions[act.value];
@@ -141,6 +144,18 @@ LRParseResult LRParser::run(
                     "  (pop " + std::to_string(popCount) + ")";
                 result.trace.push_back(step);
             }
+
+            // Construir nodo del árbol
+            auto parent = std::make_shared<TreeNode>(prod.head);
+            if (epsilonProd) {
+                parent->children.push_back(std::make_shared<TreeNode>("ε", "ε"));
+            } else {
+                int base = (int)nodeStk.size() - popCount;
+                for (int k = base; k < (int)nodeStk.size(); k++)
+                    parent->children.push_back(nodeStk[k]);
+                nodeStk.resize(base);
+            }
+            nodeStk.push_back(parent);
 
             for (int k = 0; k < popCount; k++) {
                 stateStack.pop_back();
@@ -170,6 +185,7 @@ LRParseResult LRParser::run(
                 result.trace.push_back(step);
             }
             result.accepted = result.errors.empty();
+            if (!nodeStk.empty()) result.tree = nodeStk.back();
             return result;
         }
     }

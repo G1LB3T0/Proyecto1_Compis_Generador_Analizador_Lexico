@@ -2,16 +2,18 @@
 #include "ll1_table.h"
 #include "token_stream.h"
 #include "parse_step.h"
+#include "parse_tree.h"
 #include <string>
 #include <vector>
 
 // Resultado del análisis LL(1)
 struct LL1ParseResult {
     bool        accepted = false;
-    std::string error_msg;           // primer error (compatibilidad)
-    std::vector<std::string> errors; // todos los errores acumulados (panic mode)
+    std::string error_msg;
+    std::vector<std::string> errors;
     std::vector<int> derivations;
-    std::vector<ParseStep> trace;    // traza paso a paso
+    std::vector<ParseStep> trace;
+    TreeNodePtr tree;                // árbol de derivación
 };
 
 // ============================================================
