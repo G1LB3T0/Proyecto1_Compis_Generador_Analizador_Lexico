@@ -80,3 +80,6 @@ yapar
 # === Python ===
 __pycache__/
 *.pyc
+
+# === Material de consulta local no redistribuido ===
+Instrucciones/Compilers - Principles, Techniques, and Tools (2006).md

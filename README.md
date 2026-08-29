@@ -1,4 +1,26 @@
-# Generadores YALex y YAPar
+# Compiscript — Compiladores 2
+
+Rama de desarrollo del analizador sintáctico y semántico de **Compiscript**, un
+subconjunto educativo de TypeScript. Esta etapa utilizará la gramática oficial
+con ANTLR y añadirá Visitors semánticos, tabla de símbolos con ámbitos
+anidados, sistema de tipos, validación de funciones, clases, listas, control de
+flujo y una batería automatizada de pruebas.
+
+El punto de partida conserva todo el trabajo de Compiladores 1 para reutilizar
+el IDE Flask, la comunicación JSON, el manejo de archivos, los componentes de
+visualización y la experiencia obtenida al construir YALex y YAPar.
+
+## Material oficial de esta etapa
+
+- [Enunciado del proyecto](Instrucciones/Generador_de_Analizadores_Semánticos.md)
+- [Especificación de Compiscript](Instrucciones/Especificaciones%20(1).md)
+- [Gramática oficial de Compiscript](Instrucciones/Compiscript%20(1).g4)
+
+El desarrollo de ANTLR todavía no forma parte de este commit inicial. Primero
+se conserva una base común verificable; las siguientes entregas incorporarán
+el nuevo pipeline por módulos y con pruebas asociadas a cada regla semántica.
+
+## Base heredada: generadores YALex y YAPar
 
 Proyecto académico desarrollado durante **Compiladores 1** para construir, desde
 cero, generadores de analizadores léxicos y sintácticos. El repositorio reúne
@@ -12,8 +34,8 @@ Ambas etapas están integradas en una interfaz web tipo IDE que permite editar
 especificaciones, construir los analizadores, visualizar sus estructuras y
 evaluar cadenas o archivos de entrada.
 
-> Esta rama conserva el cierre de **Compiladores 1**. El trabajo de
-> Compiladores 2 se desarrolla en la rama `compiladores-2`.
+> El cierre inmutable de esta base se encuentra en la etiqueta
+> `compiladores-1-final` y en la rama `compiladores-1`.
 
 ## Contenido
 
