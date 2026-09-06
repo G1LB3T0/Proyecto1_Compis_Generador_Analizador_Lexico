@@ -76,10 +76,15 @@ generador
 yapar_cli
 menu
 yapar
+compiscript_cli
+compiscript_tests
 
 # === Python ===
 __pycache__/
 *.pyc
+
+# === Herramienta ANTLR descargable ===
+tools/*.jar
 
 # === Material de consulta local no redistribuido ===
 Instrucciones/Compilers - Principles, Techniques, and Tools (2006).md
