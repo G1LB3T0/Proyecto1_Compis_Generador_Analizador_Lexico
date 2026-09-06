@@ -1,764 +1,995 @@
-// ── Estado global ─────────────────────────────────────────────
-let lastBuild  = null;
-let editorOpen = false;
-let dirty      = { yal: false, yalp: false };
-let activeTab  = 'yal';
-
-// ── SVG icons ─────────────────────────────────────────────────
-const ICONS = {
-  pencil:  `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
-  x:       `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-  play:    `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
-  zap:     `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-  folder:  `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
-  save:    `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
-  chevron: `<svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
-  info:    `<svg class="inline-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
-  warning: `<svg class="inline-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+const editor = document.getElementById('source-editor');
+const filenameInput = document.getElementById('filename');
+const statusBox = document.getElementById('status');
+let latestResult = null;
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const treeGraph = {
+  root: null,
+  collapsed: new Set(),
+  zoom: 1,
+  viewport: null,
+  stage: null,
+  zoomLabel: null,
+  width: 0,
+  height: 0,
 };
 
-// ── Init ──────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  loadFiles();
-  setupRadios();
+document.addEventListener('DOMContentLoaded', async () => {
+  bindEvents();
+  await refreshFiles();
+  const select = document.getElementById('example-select');
+  if (select.value) await loadExample(select.value);
+  updateCursor();
 });
 
-function setStatus(msg, color) {
-  const el = document.getElementById('status');
-  el.textContent = msg;
-  el.style.color = color || 'var(--subtext)';
-}
-
-// ── Archivos ──────────────────────────────────────────────────
-async function loadFiles() {
-  try {
-    const res  = await fetch('/api/files');
-    const data = await res.json();
-    populate('sel-yal',  data.yal);
-    populate('sel-yalp', data.yalp);
-  } catch { setStatus('Error cargando archivos', 'var(--red)'); }
-}
-
-function populate(id, list) {
-  const sel = document.getElementById(id);
-  sel.innerHTML = list.map(f => `<option value="${f}">${f}</option>`).join('');
-}
-
-// Cuando cambia un selector, refrescar el editor si está abierto
-function onFileChange() {
-  if (editorOpen) loadEditorFiles();
-}
-
-// ── Editor integrado ──────────────────────────────────────────
-async function toggleEditor() {
-  const panel = document.getElementById('editor-panel');
-  const btn   = document.getElementById('btn-editor');
-  editorOpen  = !editorOpen;
-  panel.style.display = editorOpen ? 'block' : 'none';
-  btn.innerHTML = editorOpen ? `${ICONS.x} Cerrar Editor` : `${ICONS.pencil} Abrir Editor`;
-  if (editorOpen) await loadEditorFiles();
-}
-
-async function loadEditorFiles() {
-  const yal  = document.getElementById('sel-yal').value;
-  const yalp = document.getElementById('sel-yalp').value;
-  if (yal)  { await fetchIntoEditor('yal',  yal);  updateTabLabel('yal',  yal);  }
-  if (yalp) { await fetchIntoEditor('yalp', yalp); updateTabLabel('yalp', yalp); }
-  dirty = { yal: false, yalp: false };
-  clearDirtyMark('yal'); clearDirtyMark('yalp');
-}
-
-async function fetchIntoEditor(tab, filename) {
-  try {
-    const res  = await fetch(`/api/file/${filename}`);
-    const data = await res.json();
-    if (data.ok) document.getElementById(`textarea-${tab}`).value = data.content;
-  } catch (e) { console.error('Error leyendo archivo:', e); }
-}
-
-function updateTabLabel(tab, filename) {
-  document.getElementById(`tab-${tab}-label`).textContent = filename;
-}
-
-function switchTab(tab) {
-  activeTab = tab;
-  document.querySelectorAll('.editor-tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.editor-tab[data-tab="${tab}"]`).classList.add('active');
-  document.getElementById('editor-yal').style.display  = tab === 'yal'  ? 'flex' : 'none';
-  document.getElementById('editor-yalp').style.display = tab === 'yalp' ? 'flex' : 'none';
-}
-
-function markDirty(tab) {
-  dirty[tab] = true;
-  document.querySelector(`.editor-tab[data-tab="${tab}"]`).classList.add('dirty');
-}
-
-function clearDirtyMark(tab) {
-  dirty[tab] = false;
-  document.querySelector(`.editor-tab[data-tab="${tab}"]`).classList.remove('dirty');
-}
-
-async function saveCurrentFile() {
-  const tab      = activeTab;
-  const filename = tab === 'yal'
-    ? document.getElementById('sel-yal').value
-    : document.getElementById('sel-yalp').value;
-  const content  = document.getElementById(`textarea-${tab}`).value;
-
-  if (!filename) { showSaveStatus('Selecciona un archivo primero', 'var(--yellow)'); return; }
-
-  try {
-    const res  = await fetch('/api/save', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ filename, content })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showSaveStatus('Guardado', 'var(--green)');
-      clearDirtyMark(tab);
-    } else {
-      showSaveStatus(data.error, 'var(--red)');
+function bindEvents() {
+  document.getElementById('load-example').addEventListener('click', () => {
+    const name = document.getElementById('example-select').value;
+    if (name) loadExample(name);
+  });
+  document.getElementById('new-file').addEventListener('click', newFile);
+  document.getElementById('local-file').addEventListener('change', loadLocalFile);
+  document.getElementById('save-file').addEventListener('click', saveFile);
+  document.getElementById('download-file').addEventListener('click', downloadFile);
+  document.getElementById('analyze-button').addEventListener('click', analyze);
+  document.getElementById('tests-button').addEventListener('click', runTests);
+  filenameInput.addEventListener('input', updateTabName);
+  editor.addEventListener('keyup', updateCursor);
+  editor.addEventListener('click', updateCursor);
+  editor.addEventListener('input', () => setStatus('Cambios sin analizar.'));
+  editor.addEventListener('keydown', event => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const start = editor.selectionStart;
+      editor.setRangeText('  ', start, editor.selectionEnd, 'end');
+      updateCursor();
     }
-  } catch (e) { showSaveStatus('Error de red', 'var(--red)'); }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') analyze();
+  });
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => selectPanel(tab.dataset.panel));
+  });
 }
 
-function showSaveStatus(msg, color) {
-  const el = document.getElementById('save-status');
-  el.textContent = msg;
-  el.style.color = color;
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.textContent = ''; }, 2500);
+function setStatus(message, kind = '') {
+  statusBox.textContent = message;
+  statusBox.className = `status ${kind}`.trim();
 }
 
-// ── Cargar cadenas desde archivo .txt ────────────────────────
-function loadInputFile(event) {
+function updateTabName() {
+  document.getElementById('tab-name').textContent = normalizedFilename();
+}
+
+function normalizedFilename() {
+  const raw = filenameInput.value.trim() || 'program.cps';
+  return raw.endsWith('.cps') ? raw : `${raw}.cps`;
+}
+
+function updateCursor() {
+  const before = editor.value.slice(0, editor.selectionStart);
+  const lines = before.split('\n');
+  document.getElementById('cursor-position').textContent =
+    `Ln ${lines.length}, Col ${lines.at(-1).length + 1}`;
+}
+
+async function refreshFiles(selected = '') {
+  const response = await fetch('/api/files');
+  const data = await response.json();
+  const select = document.getElementById('example-select');
+  select.replaceChildren();
+  for (const name of data.files || []) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    option.selected = name === selected;
+    select.append(option);
+  }
+}
+
+async function loadExample(name) {
+  setStatus(`Cargando ${name}…`);
+  const response = await fetch(`/api/file/${encodeURIComponent(name)}`);
+  const data = await response.json();
+  if (!data.ok) return setStatus(data.error, 'error');
+  filenameInput.value = data.filename;
+  editor.value = data.content;
+  updateTabName();
+  updateCursor();
+  setStatus(`${data.filename} cargado.`, 'success');
+}
+
+function newFile() {
+  filenameInput.value = 'program.cps';
+  editor.value = '';
+  latestResult = null;
+  document.getElementById('summary').classList.add('hidden');
+  document.getElementById('results').classList.add('hidden');
+  updateTabName();
+  editor.focus();
+  setStatus('Nuevo archivo .cps.');
+}
+
+function loadLocalFile(event) {
   const file = event.target.files[0];
   if (!file) return;
+  if (!file.name.endsWith('.cps')) return setStatus('Selecciona un archivo .cps.', 'error');
   const reader = new FileReader();
-  reader.onload = e => {
-    const content = e.target.result;
-    // Si parece código multilinea (más de una línea), cargar como una sola cadena
-    const lines = content.split('\n').map(l => l.trimEnd()).filter(Boolean);
-    if (lines.length > 1) {
-      document.getElementById('input-str').value = content;
-      document.getElementById('strings-panel').style.display = 'none';
-    } else {
-      renderStringsList(lines);
-    }
+  reader.onload = () => {
+    filenameInput.value = file.name;
+    editor.value = reader.result;
+    updateTabName();
+    updateCursor();
+    setStatus(`${file.name} cargado desde tu equipo.`, 'success');
   };
   reader.readAsText(file);
   event.target.value = '';
 }
 
-function renderStringsList(lines) {
-  const panel = document.getElementById('strings-panel');
-  const list  = document.getElementById('strings-list');
-  panel.style.display = 'flex';
-  list.innerHTML = lines.map(l =>
-    `<div class="string-item" onclick="selectString(this,'${escHtml(l).replace(/'/g,"\\'")}')">
-       ${escHtml(l)}
-     </div>`
-  ).join('');
-}
-
-function selectString(el, str) {
-  document.querySelectorAll('.string-item').forEach(i => i.classList.remove('selected'));
-  el.classList.add('selected');
-  document.getElementById('input-str').value = str;
-}
-
-// ── Radios ────────────────────────────────────────────────────
-function setupRadios() {
-  document.querySelectorAll('.radio-option').forEach(opt => {
-    opt.addEventListener('click', () => {
-      document.querySelectorAll('.radio-option').forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      opt.querySelector('input').checked = true;
-    });
+async function saveFile() {
+  const filename = normalizedFilename();
+  const response = await fetch('/api/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({filename, source: editor.value}),
   });
+  const data = await response.json();
+  if (!data.ok) return setStatus(data.error, 'error');
+  filenameInput.value = data.filename;
+  updateTabName();
+  await refreshFiles(data.filename);
+  setStatus(`${data.filename} guardado en ejemplos.`, 'success');
 }
 
-function getMethod() {
-  return document.querySelector('.radio-option.active').dataset.method;
+function downloadFile() {
+  const blob = new Blob([editor.value], {type: 'text/plain;charset=utf-8'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = normalizedFilename();
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
-// ── Construir tabla ───────────────────────────────────────────
-async function buildTable() {
-  const yal    = document.getElementById('sel-yal').value;
-  const yalp   = document.getElementById('sel-yalp').value;
-  const method = getMethod();
-  if (!yal || !yalp) { setStatus('Selecciona .yal y .yalp', 'var(--yellow)'); return; }
-
-  document.getElementById('btn-build').disabled = true;
-  setStatus('Construyendo...', 'var(--blue)');
-  document.getElementById('main').innerHTML = renderSkeleton();
-
+async function analyze() {
+  const button = document.getElementById('analyze-button');
+  button.disabled = true;
+  setStatus('ANTLR y el Visitor C++ están analizando…');
   try {
-    const res  = await fetch('/api/run', {
+    const response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ yal, yalp, method })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: normalizedFilename(), source: editor.value}),
     });
-    const data = await res.json();
-    if (!data.ok) { throw new Error(data.error); }
-
-    lastBuild = { yal, yalp, method, data };
-    renderAll(data);
-    document.getElementById('parse-section').style.display = 'flex';
-    setStatus('Tabla construida correctamente', 'var(--green)');
-  } catch (e) {
-    document.getElementById('main').innerHTML =
-      `<div class="pipeline-step"><div class="step-body" style="color:var(--red)">
-        <strong>Error:</strong> ${e.message}</div></div>`;
-    setStatus('Error al construir', 'var(--red)');
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    latestResult = data;
+    renderResult(data);
+    setStatus(
+      data.ok ? 'Análisis completado sin errores.' : `Análisis completado con ${data.diagnostics.length} diagnóstico(s).`,
+      data.ok ? 'success' : 'error',
+    );
+  } catch (error) {
+    setStatus(error.message || 'No se pudo ejecutar el análisis.', 'error');
   } finally {
-    document.getElementById('btn-build').disabled = false;
+    button.disabled = false;
   }
 }
 
-// ── Parsear cadena ────────────────────────────────────────────
-async function parseInput() {
-  if (!lastBuild) return;
-  const inp = document.getElementById('input-str').value;
-  if (inp.trim() === '') { setStatus('Escribe una cadena', 'var(--yellow)'); return; }
+function renderResult(data) {
+  renderSummary(data);
+  renderDiagnostics(data.diagnostics || []);
+  renderTree(data.tree);
+  renderSymbols(data.semantic || {});
+  renderTypeSystem(data.semantic || {});
+  renderScopeManagement(data.semantic || {});
+  renderTokens(data.tokens || []);
+  renderClasses(data.semantic?.classes || [], data.semantic?.symbols || []);
+  document.getElementById('summary').classList.remove('hidden');
+  document.getElementById('results').classList.remove('hidden');
+  selectPanel('diagnostics-panel');
+}
 
-  setStatus('Analizando...', 'var(--blue)');
-  const { yal, yalp, method } = lastBuild;
+function renderSummary(data) {
+  const summary = data.summary;
+  const cards = [
+    ['Sintaxis', data.syntax_ok ? 'Correcta' : 'Con errores', data.syntax_ok],
+    ['Semántica', data.semantic_ok ? 'Correcta' : (data.semantic?.skipped ? 'Omitida' : 'Con errores'), data.semantic_ok],
+    ['Tokens', summary.tokens, true],
+    ['Símbolos', summary.symbols, true],
+    ['Ámbitos', summary.scopes, true],
+  ];
+  const container = document.getElementById('summary');
+  container.replaceChildren(...cards.map(([label, value, good]) => {
+    const card = document.createElement('div');
+    card.className = `summary-card ${good ? 'good' : 'bad'}`;
+    const caption = document.createElement('span');
+    caption.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = value;
+    card.append(caption, strong);
+    return card;
+  }));
+}
 
-  try {
-    const res  = await fetch('/api/run', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ yal, yalp, method, input: inp })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-
-    // Actualizar resultado (PASO 5)
-    removeStep('step-result');
-    appendStep(renderResultStep(data.result, method.toUpperCase()));
-    document.getElementById('step-result').scrollIntoView({ behavior: 'smooth' });
-    setStatus(data.result.accepted ? 'Cadena ACEPTADA' : 'Cadena RECHAZADA',
-              data.result.accepted ? 'var(--green)' : 'var(--red)');
-  } catch (e) {
-    setStatus('Error: ' + e.message, 'var(--red)');
+function renderDiagnostics(diagnostics) {
+  document.getElementById('diagnostic-count').textContent = diagnostics.length;
+  const panel = document.getElementById('diagnostics-panel');
+  panel.replaceChildren();
+  if (!diagnostics.length) {
+    const banner = document.createElement('div');
+    banner.className = 'success-banner';
+    banner.textContent = '✓ No se encontraron errores léxicos, sintácticos ni semánticos.';
+    panel.append(banner);
+    return;
+  }
+  for (const item of diagnostics) {
+    const row = document.createElement('div');
+    row.className = 'diagnostic';
+    row.addEventListener('click', () => jumpTo(item.line, item.column));
+    const code = document.createElement('span');
+    code.className = 'diagnostic-code';
+    code.textContent = item.code;
+    const message = document.createElement('div');
+    message.className = 'diagnostic-message';
+    const category = document.createElement('strong');
+    category.textContent = item.category;
+    const text = document.createElement('span');
+    text.textContent = item.message;
+    message.append(category, text);
+    const location = document.createElement('span');
+    location.className = 'diagnostic-location';
+    location.textContent = `${item.line}:${item.column}`;
+    row.append(code, message, location);
+    panel.append(row);
   }
 }
 
-// ── Render completo ───────────────────────────────────────────
-function renderAll(data) {
-  const main = document.getElementById('main');
-  const method = data.table.method;
-  main.innerHTML = '';
-  main.appendChild(makeStep(renderDFAStep(data),     1, 'DFA + Tokens — Proyecto 1',  `${data.dfa.states} estados`));
-  main.appendChild(makeStep(renderGrammarStep(data), 2, 'Gramática + FIRST / FOLLOW', `${data.grammar.productions.length} producciones`));
-
-  if (method === 'slr' && data.lr0) {
-    main.appendChild(makeStep(renderLR0Step(data),   3, 'Autómata LR(0)',                      `${data.lr0.count} estados`));
-    main.appendChild(makeStep(renderTableStep(data), 4, 'Tabla de Análisis',                   'SLR(1)'));
-  } else if (method === 'lalr' && data.lr1) {
-    main.appendChild(makeStep(renderLR1Step(data),   3, 'Autómata LR(1) → fusionado LALR',     `${data.lr1.count} estados`));
-    main.appendChild(makeStep(renderTableStep(data), 4, 'Tabla de Análisis',                   'LALR(1)'));
-  } else {
-    main.appendChild(makeStep(renderTableStep(data), 3, 'Tabla de Análisis — FIRST / FOLLOW',  'LL(1)'));
+function jumpTo(line, column) {
+  const lines = editor.value.split('\n');
+  let offset = 0;
+  for (let index = 0; index < Math.max(0, line - 1) && index < lines.length; index++) {
+    offset += lines[index].length + 1;
   }
+  offset += Math.max(0, column - 1);
+  editor.focus();
+  editor.setSelectionRange(offset, offset);
+  editor.scrollIntoView({behavior: 'smooth', block: 'center'});
+  updateCursor();
 }
-
-function appendStep(html) {
-  document.getElementById('main').insertAdjacentHTML('beforeend', html);
-}
-
-function removeStep(id) {
-  const el = document.getElementById(id);
-  if (el) el.remove();
-}
-
-// ── Skeleton loader ───────────────────────────────────────────
-function renderSkeleton() {
-  return Array(3).fill(0).map((_, i) =>
-    `<div class="pipeline-step" style="animation-delay:${i*80}ms">
-      <div class="step-header">
-        <div class="step-num" style="background:var(--surface1)">${i+1}</div>
-        <div style="height:14px;width:180px;background:var(--surface0);border-radius:4px"></div>
-      </div>
-      <div class="step-body" style="height:80px;background:linear-gradient(90deg,var(--surface0) 25%,var(--bg) 50%,var(--surface0) 75%);background-size:400% 100%;animation:shimmer 1.2s infinite"></div>
-    </div>`
-  ).join('') + '<style>@keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}</style>';
-}
-
-// ── makeStep (collapsible wrapper) ───────────────────────────
-function makeStep(innerHtml, num, title, badge) {
-  const div = document.createElement('div');
-  div.className = 'pipeline-step';
-  div.innerHTML = `
-    <div class="step-header" onclick="toggleStep(this)">
-      <div class="step-num">${num}</div>
-      <div class="step-title">${title}</div>
-      <span class="step-badge">${badge}</span>
-      <span class="step-toggle open">${ICONS.chevron}</span>
-    </div>
-    <div class="step-body">${innerHtml}</div>`;
-  return div;
-}
-
-function toggleStep(hdr) {
-  const body   = hdr.nextElementSibling;
-  const toggle = hdr.querySelector('.step-toggle');
-  const open   = body.style.display !== 'none';
-  body.style.display = open ? 'none' : '';
-  toggle.classList.toggle('open', !open);
-}
-
-// ── PASO 1: DFA ───────────────────────────────────────────────
-function renderDFAStep(data) {
-  const rows = data.dfa.tokens.map((t, i) => {
-    const pat = (data.dfa.patterns && data.dfa.patterns[i]) || '';
-    return `<div class="tok-row">
-      <span class="tok-idx">[${i}]</span>
-      <span class="tok-kv">&lt;<span class="tok-kv-type">${escHtml(t)}</span>,&nbsp;<span class="tok-kv-lex">"${escHtml(pat)}"</span>&gt;</span>
-    </div>`;
-  }).join('');
-
-  return `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div class="card">
-        <div class="card-title">Resumen</div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:.85rem;">
-          <div>Estados DFA <strong style="color:var(--blue);float:right">${data.dfa.states}</strong></div>
-          <div>Reglas .yal <strong style="color:var(--mauve);float:right">${data.dfa.tokens.length}</strong></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title">Tokens</div>
-        <div class="tok-list" style="margin-top:8px;">${rows}</div>
-      </div>
-    </div>`;
-}
-
-// ── PASO 2: Gramática + FIRST/FOLLOW ─────────────────────────
-function renderGrammarStep(data) {
-  const g   = data.table.method === 'll1' && data.grammar_ll1 ? data.grammar_ll1 : data.grammar;
-  const ff  = data.table.method === 'll1' && data.ff_ll1      ? data.ff_ll1      : data.ff;
-  const ll1 = data.table.method === 'll1' && data.grammar_ll1;
-
-  const prods = g.productions.map(p =>
-    `<div class="prod-row">
-       <span class="prod-idx">[${p.id}]</span>
-       <span class="prod-head">${p.head}</span>
-       <span class="prod-arrow"> → </span>
-       <span class="prod-body">${p.body}</span>
-     </div>`).join('');
-
-  const ffRows = g.non_terminals.map(nt => {
-    const fst = (ff.first[nt]  || []).join(', ') || '—';
-    const flw = (ff.follow[nt] || []).join(', ') || '—';
-    return `<tr>
-      <td class="ff-nt">${nt}</td>
-      <td class="ff-set">{${fst}}</td>
-      <td class="ff-set">{${flw}}</td>
-    </tr>`;
-  }).join('');
-
-  return `
-    ${ll1 ? `<div class="conflict-banner">${ICONS.info} Gramática transformada para LL(1) — se eliminó recursión izquierda y se aplicó factorización.</div>` : ''}
-    <div class="two-col">
-      <div class="card">
-        <div class="card-title">Producciones</div>
-        <div class="prod-list">${prods}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">FIRST y FOLLOW</div>
-        <table class="ff-table">
-          <thead><tr><th>NT</th><th>FIRST</th><th>FOLLOW</th></tr></thead>
-          <tbody>${ffRows}</tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
-// ── PASO 3: LR(0) ─────────────────────────────────────────────
-function renderLR0Step(data) {
-  const states = data.lr0.states.map(s => {
-    const items = s.items.map(it =>
-      `<div class="lr0-item">${escHtml(it)}</div>`).join('');
-    const trans = Object.entries(s.transitions).map(([sym, dst]) =>
-      `<span class="lr0-trans-chip">${sym} <em>→</em> I${dst}</span>`).join('');
-    return `
-      <div class="lr0-state">
-        <div class="lr0-state-hdr" onclick="toggleLR0(this)">
-          <span class="lr0-id">I${s.id}</span>
-          <span style="font-size:.78rem;color:var(--subtext)">${s.items.length} ítem(s)</span>
-          <span style="margin-left:auto;color:var(--overlay)">${ICONS.chevron}</span>
-        </div>
-        <div class="lr0-items">
-          ${items}
-          ${trans ? `<div class="lr0-trans"><span>GOTO:</span>${trans}</div>` : ''}
-        </div>
-      </div>`;
-  }).join('');
-  return `<div class="lr0-states">${states}</div>`;
-}
-
-function toggleLR0(hdr) {
-  const body = hdr.nextElementSibling;
-  body.classList.toggle('open');
-  const ch = hdr.querySelector('.chevron-icon');
-  if (ch) ch.classList.toggle('open');
-}
-
-// ── PASO 3 (LALR): Autómata LR(1) fusionado ───────────────────
-function renderLR1Step(data) {
-  const states = data.lr1.states.map(s => {
-    const items = s.items.map(it => {
-      // Separar la parte del ítem de los lookaheads {a, b}
-      const match = it.match(/^(.+?)(\s+\{.+\})$/);
-      const core  = match ? escHtml(match[1]) : escHtml(it);
-      const la    = match ? `<span class="lr1-la">${escHtml(match[2])}</span>` : '';
-      return `<div class="lr0-item">${core}${la}</div>`;
-    }).join('');
-    const trans = Object.entries(s.transitions).map(([sym, dst]) =>
-      `<span class="lr0-trans-chip">${sym} <em>→</em> I${dst}</span>`).join('');
-    return `
-      <div class="lr0-state">
-        <div class="lr0-state-hdr" onclick="toggleLR0(this)">
-          <span class="lr0-id">I${s.id}</span>
-          <span style="font-size:.78rem;color:var(--subtext)">${s.items.length} ítem(s) LR(1)</span>
-          <span style="margin-left:auto;color:var(--overlay)">${ICONS.chevron}</span>
-        </div>
-        <div class="lr0-items">
-          ${items}
-          ${trans ? `<div class="lr0-trans"><span>GOTO:</span>${trans}</div>` : ''}
-        </div>
-      </div>`;
-  }).join('');
-  return `
-    <div class="conflict-banner" style="border-color:var(--teal);color:var(--teal);background:rgba(148,226,213,.06);">
-      ${ICONS.info} Los ítems LR(1) incluyen lookaheads <span style="font-family:monospace">{a, b}</span>. Estados con el mismo núcleo LR(0) fueron fusionados para formar los estados LALR.
-    </div>
-    <div class="lr0-states">${states}</div>`;
-}
-
-// ── PASO 4: Tabla de análisis ─────────────────────────────────
-function renderTableStep(data) {
-  const t = data.table;
-  const conflicts = t.has_conflicts
-    ? `<div class="conflict-banner">${ICONS.warning} La gramática tiene conflictos en esta tabla.</div>` : '';
-
-  if (t.method === 'll1') return conflicts + renderLL1Table(t);
-  return conflicts + renderLRTable(t);
-}
-
-function renderLRTable(t) {
-  const aHdrs = t.action_headers;
-  const gHdrs = t.goto_headers;
-
-  let html = '<div class="table-wrap"><table class="parse-table"><thead><tr>';
-  html += '<th class="cell-state">Est.</th>';
-  aHdrs.forEach(h => html += `<th class="th-action">${h}</th>`);
-  html += '<th class="th-sep"></th>';
-  gHdrs.forEach(h => html += `<th class="th-goto">${h}</th>`);
-  html += '</tr></thead><tbody>';
-
-  t.rows.forEach(row => {
-    html += `<tr><td class="cell-state">${row.state}</td>`;
-    aHdrs.forEach(h => {
-      const cell = row.action[h];
-      if (!cell) { html += '<td></td>'; return; }
-      const cls = `cell-${cell.type}`;
-      html += `<td class="${cls}">${cell.label}</td>`;
-    });
-    html += '<td class="th-sep"></td>';
-    gHdrs.forEach(h => {
-      const v = row.goto[h];
-      html += v !== undefined ? `<td class="cell-goto">${v}</td>` : '<td></td>';
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  return html;
-}
-
-function renderLL1Table(t) {
-  const aHdrs = t.action_headers;
-  let html = '<div class="table-wrap"><table class="parse-table"><thead><tr>';
-  html += '<th class="cell-state">NT</th>';
-  aHdrs.forEach(h => html += `<th class="th-action">${h}</th>`);
-  html += '</tr></thead><tbody>';
-
-  t.rows.forEach(row => {
-    html += `<tr><td class="cell-state">${row.nt}</td>`;
-    aHdrs.forEach(h => {
-      const cell = row.action[h];
-      if (!cell) { html += '<td></td>'; return; }
-      html += `<td class="cell-predict" title="${cell.label}">${cell.label}</td>`;
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  return html;
-}
-
-// ── PASO 5: Tokens ────────────────────────────────────────────
-function renderTokensStep(tokens) {
-  const rows = tokens.map((t, i) => {
-    const isEof = t.tipo === '$';
-    const kvSpan = isEof
-      ? `<span class="tok-kv tok-kv-eof">&lt;$, <em>"$"</em>&gt;</span>`
-      : `<span class="tok-kv">&lt;<span class="tok-kv-type">${escHtml(t.tipo)}</span>,&nbsp;<span class="tok-kv-lex">"${escHtml(t.lexema)}"</span>&gt;</span>`;
-    const meta = isEof
-      ? `<span class="tok-meta">EOF</span>`
-      : `<span class="tok-meta">l:${t.l} c:${t.c}</span>`;
-    return `<div class="tok-row ${isEof ? 'tok-row-eof' : ''}">
-      <span class="tok-idx">[${i}]</span>
-      ${kvSpan}
-      ${meta}
-    </div>`;
-  }).join('');
-
-  const div = document.createElement('div');
-  div.id = 'step-tokens';
-  div.className = 'pipeline-step';
-  div.innerHTML = `
-    <div class="step-header" onclick="toggleStep(this)">
-      <div class="step-num" style="background:var(--teal);color:var(--mantle)">5</div>
-      <div class="step-title">Tokens generados — Proyecto 1</div>
-      <span class="step-badge">${tokens.length - 1} tokens + EOF</span>
-      <span class="step-toggle open">${ICONS.chevron}</span>
-    </div>
-    <div class="step-body">
-      <div style="font-size:.75rem;color:var(--overlay);margin-bottom:10px;">
-        Salida del analizador léxico (DFA) sobre la cadena de entrada.
-        Formato: <code style="color:var(--mauve)">&lt;TOKEN, "lexema"&gt;</code>
-      </div>
-      <div class="tok-list">${rows}</div>
-    </div>`;
-  return div.outerHTML;
-}
-
-// ── PASO 5: Resultado ─────────────────────────────────────────
-function renderResultStep(result, method) {
-  const ok      = result.accepted;
-  const verdict = ok ? 'ACCEPT' : 'REJECT';
-  const cls     = ok ? 'result-accept' : 'result-reject';
-
-  const errHtml = result.errors && result.errors.length
-    ? `<div class="error-list">${result.errors.map(e =>
-        `<div class="error-item">${escHtml(e)}</div>`).join('')}</div>` : '';
-
-  // ── Traza de análisis ──────────────────────────────────────
-  let traceHtml = '';
-  if (result.trace && result.trace.length > 0) {
-    const isLR = result.trace.some(s => s.symbols && s.symbols.length > 0);
-    const rows  = result.trace.map(s => {
-      const actCls = s.action.startsWith('ERROR')  ? 'trace-act-error'
-                   : s.action.startsWith('ACCEPT') ? 'trace-act-accept'
-                   : s.action.startsWith('MATCH')  ? 'trace-act-match'
-                   : '';
-      const stackCell = isLR
-        ? `<td class="trace-stack">[${escHtml(s.stack).replace(/ /g,',')}]</td>
-           <td class="trace-sym">${escHtml(s.symbols)}</td>`
-        : `<td class="trace-stack">${escHtml(s.stack)}</td>`;
-      return `<tr>
-        ${stackCell}
-        <td class="trace-in">${escHtml(s.input)}</td>
-        <td class="trace-act ${actCls}">${escHtml(s.action)}</td>
-      </tr>`;
-    }).join('');
-
-    const hdrLR = isLR
-      ? '<th class="th-trace-stack">Pila de estados</th><th class="th-trace-sym">Pila de símbolos</th>'
-      : '<th class="th-trace-stack">Pila</th>';
-
-    traceHtml = `
-      <div style="margin-top:18px;">
-        <div class="trace-title">Traza de análisis
-          <span style="font-weight:400;color:var(--overlay);font-size:.75rem;margin-left:8px;">${result.trace.length} pasos</span>
-        </div>
-        <div class="table-wrap trace-wrap">
-          <table class="parse-table trace-table">
-            <thead><tr>${hdrLR}<th class="th-trace-in">Entrada restante</th><th class="th-trace-act">Acción</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </div>`;
-  }
-
-  const treeHtml = ok && result.tree ? renderTree(result.tree) : '';
-
-  const div = document.createElement('div');
-  div.id = 'step-result';
-  div.className = 'pipeline-step';
-  div.innerHTML = `
-    <div class="step-header" onclick="toggleStep(this)">
-      <div class="step-num" style="background:${ok ? 'var(--green)' : 'var(--red)'};color:var(--mantle)">5</div>
-      <div class="step-title">Resultado del análisis</div>
-      <span class="step-badge" style="color:${ok ? 'var(--green)' : 'var(--red)'};">${method} — ${verdict}</span>
-      <span class="step-toggle open">${ICONS.chevron}</span>
-    </div>
-    <div class="step-body">
-      <div class="result-box ${cls}">
-        <div class="result-verdict">${verdict}</div>
-        <div style="font-size:.85rem;color:var(--subtext);margin-top:6px;">Método: ${method}</div>
-        ${errHtml}
-      </div>
-      ${traceHtml}
-      ${treeHtml}
-    </div>`;
-  return div.outerHTML;
-}
-
-// ── Árbol de derivación (Canvas) ──────────────────────────────
-
-const TREE_NODE_W  = 72;
-const TREE_NODE_H  = 28;
-const TREE_GAP_X   = 14;
-const TREE_GAP_Y   = 52;
-
-function treeLayout(node) {
-  // Asigna x (leaves primero, luego centra padres) y devuelve ancho del subárbol
-  if (!node.children || node.children.length === 0) {
-    node._w = TREE_NODE_W + TREE_GAP_X;
-    node._x = 0;
-    return node._w;
-  }
-  let total = 0;
-  for (const c of node.children) total += treeLayout(c);
-  node._w = total;
-  // centrar este nodo sobre sus hijos
-  const first = node.children[0];
-  const last  = node.children[node.children.length - 1];
-  node._x = (first._x + last._x) / 2;
-  return total;
-}
-
-function treeAssignX(node, offsetX) {
-  if (!node.children || node.children.length === 0) {
-    node._x = offsetX + TREE_NODE_W / 2;
-    node._offsetX = offsetX;
-    return offsetX + TREE_NODE_W + TREE_GAP_X;
-  }
-  let cur = offsetX;
-  for (const c of node.children) cur = treeAssignX(c, cur);
-  const first = node.children[0];
-  const last  = node.children[node.children.length - 1];
-  node._x = (first._x + last._x) / 2;
-  return cur;
-}
-
-function treeAssignY(node, depth) {
-  node._y = depth * TREE_GAP_Y + TREE_NODE_H / 2;
-  if (node.children) for (const c of node.children) treeAssignY(c, depth + 1);
-}
-
-function treeMaxXY(node) {
-  let mx = node._x + TREE_NODE_W / 2, my = node._y + TREE_NODE_H / 2;
-  if (node.children) for (const c of node.children) {
-    const [cx, cy] = treeMaxXY(c);
-    mx = Math.max(mx, cx); my = Math.max(my, cy);
-  }
-  return [mx, my];
-}
-
-function drawTree(ctx, node, isNT) {
-  const x = node._x, y = node._y;
-  const hw = TREE_NODE_W / 2, hh = TREE_NODE_H / 2;
-
-  // líneas a hijos
-  if (node.children) {
-    ctx.strokeStyle = '#45475a';
-    ctx.lineWidth   = 1.5;
-    for (const c of node.children) {
-      ctx.beginPath();
-      ctx.moveTo(x, y + hh);
-      ctx.lineTo(c._x, c._y - hh);
-      ctx.stroke();
-      drawTree(ctx, c, isNT);
-    }
-  }
-
-  const isEps  = node.label === 'ε';
-  const isLeaf = !node.children || node.children.length === 0;
-
-  // fondo del nodo
-  ctx.beginPath();
-  roundRect(ctx, x - hw, y - hh, TREE_NODE_W, TREE_NODE_H, 6);
-  if (isEps) {
-    ctx.fillStyle = 'rgba(108,112,134,0.18)';
-  } else if (isLeaf) {
-    ctx.fillStyle = 'rgba(166,227,161,0.13)';
-  } else {
-    ctx.fillStyle = 'rgba(137,180,250,0.13)';
-  }
-  ctx.fill();
-
-  // borde
-  ctx.strokeStyle = isEps ? '#6c7086' : isLeaf ? '#a6e3a1' : '#89b4fa';
-  ctx.lineWidth   = 1.2;
-  ctx.stroke();
-
-  // texto label
-  ctx.fillStyle  = isEps ? '#6c7086' : isLeaf ? '#a6e3a1' : '#89b4fa';
-  ctx.font       = 'bold 11px "JetBrains Mono", monospace';
-  ctx.textAlign  = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(clip(node.label, 9), x, node.lexema ? y - 5 : y);
-
-  // lexema (para terminales)
-  if (node.lexema && node.lexema !== '' && node.lexema !== 'ε') {
-    ctx.fillStyle    = '#fab387';
-    ctx.font         = '9px "JetBrains Mono", monospace';
-    ctx.fillText('"' + clip(node.lexema, 8) + '"', x, y + 7);
-  }
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 function renderTree(tree) {
-  if (!tree) return '';
-  // layout
-  treeAssignX(tree, 16);
-  treeAssignY(tree, 0);
-  const [maxX, maxY] = treeMaxXY(tree);
-  const W = maxX + 16;
-  const H = maxY + TREE_NODE_H / 2 + 20;
+  const panel = document.getElementById('tree-panel');
+  panel.replaceChildren();
+  if (!tree) return panel.append(emptyMessage('No hay árbol sintáctico disponible.'));
 
-  const id = 'tree-canvas-' + Date.now();
-  // devolvemos el contenedor; el canvas se pinta después con requestAnimationFrame
-  setTimeout(() => {
-    const canvas = document.getElementById(id);
-    if (!canvas) return;
-    canvas.width  = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-    drawTree(ctx, tree, true);
-  }, 0);
+  treeGraph.root = indexTree(tree);
+  treeGraph.collapsed = new Set();
+  treeGraph.zoom = 1;
+  setTreeOverview(treeGraph.root);
 
-  return `<div class="tree-wrap">
-    <div style="font-size:.75rem;color:var(--overlay);margin-bottom:10px;">
-      Nodos azules = no terminales &nbsp;·&nbsp; Nodos verdes = terminales &nbsp;·&nbsp; Texto naranja = lexema
-    </div>
-    <canvas id="${id}" class="tree-canvas"></canvas>
-  </div>`;
+  const toolbar = document.createElement('div');
+  toolbar.className = 'tree-toolbar';
+
+  const actions = document.createElement('div');
+  actions.className = 'tree-actions';
+  actions.append(
+    treeButton('Vista general', () => {
+      treeGraph.collapsed.clear();
+      setTreeOverview(treeGraph.root);
+      drawTreeGraph();
+    }),
+    treeButton('Expandir todo', () => {
+      treeGraph.collapsed.clear();
+      drawTreeGraph();
+    }),
+    treeButton('Contraer', () => {
+      treeGraph.collapsed.clear();
+      treeGraph.collapsed.add(treeGraph.root.id);
+      drawTreeGraph();
+    }),
+  );
+
+  const help = document.createElement('div');
+  help.className = 'tree-help';
+  help.append(
+    treeLegend('rule', 'Regla'),
+    treeLegend('token', 'Token'),
+  );
+  const hint = document.createElement('span');
+  hint.className = 'tree-hint';
+  hint.textContent = 'Clic en un nodo para explorar';
+  help.append(hint);
+
+  const zoom = document.createElement('div');
+  zoom.className = 'tree-zoom';
+  const zoomOut = treeButton('−', () => changeTreeZoom(-0.1), 'Alejar');
+  const zoomIn = treeButton('+', () => changeTreeZoom(0.1), 'Acercar');
+  treeGraph.zoomLabel = document.createElement('span');
+  treeGraph.zoomLabel.textContent = '100%';
+  zoom.append(zoomOut, treeGraph.zoomLabel, zoomIn);
+
+  toolbar.append(actions, help, zoom);
+
+  treeGraph.viewport = document.createElement('div');
+  treeGraph.viewport.className = 'tree-viewport';
+  treeGraph.stage = document.createElement('div');
+  treeGraph.stage.className = 'tree-stage';
+  treeGraph.viewport.append(treeGraph.stage);
+  panel.append(toolbar, treeGraph.viewport);
+  drawTreeGraph();
 }
 
-// ── Utilidades ────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function indexTree(node, id = '0', depth = 0) {
+  return {
+    ...node,
+    id,
+    depth,
+    children: (node.children || []).map((child, index) =>
+      indexTree(child, `${id}.${index}`, depth + 1)),
+  };
+}
+
+function setTreeOverview(node) {
+  if (node.children.length && node.depth >= 2) treeGraph.collapsed.add(node.id);
+  node.children.forEach(setTreeOverview);
+}
+
+function treeButton(label, handler, title = label) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'tree-control';
+  button.textContent = label;
+  button.title = title;
+  button.addEventListener('click', handler);
+  return button;
+}
+
+function treeLegend(kind, label) {
+  const item = document.createElement('span');
+  item.className = 'tree-legend';
+  const dot = document.createElement('i');
+  dot.className = kind;
+  item.append(dot, label);
+  return item;
+}
+
+function changeTreeZoom(delta) {
+  treeGraph.zoom = Math.min(1.8, Math.max(0.5, treeGraph.zoom + delta));
+  applyTreeZoom();
+}
+
+function applyTreeZoom() {
+  if (!treeGraph.stage) return;
+  treeGraph.stage.style.width = `${treeGraph.width * treeGraph.zoom}px`;
+  treeGraph.stage.style.height = `${treeGraph.height * treeGraph.zoom}px`;
+  const svg = treeGraph.stage.querySelector('svg');
+  if (svg) {
+    svg.style.width = `${treeGraph.width * treeGraph.zoom}px`;
+    svg.style.height = `${treeGraph.height * treeGraph.zoom}px`;
+  }
+  if (treeGraph.zoomLabel)
+    treeGraph.zoomLabel.textContent = `${Math.round(treeGraph.zoom * 100)}%`;
+}
+
+function visibleChildren(node) {
+  return treeGraph.collapsed.has(node.id) ? [] : node.children;
+}
+
+function treeNodeWidth(node) {
+  const label = node.kind === 'token' ? node.text : node.name;
+  return Math.min(190, Math.max(116, 44 + String(label).length * 7));
+}
+
+function measureTree(node, metrics) {
+  const children = visibleChildren(node);
+  const ownWidth = treeNodeWidth(node) + 28;
+  if (!children.length) {
+    metrics.set(node.id, {subtreeWidth: ownWidth, nodeWidth: treeNodeWidth(node)});
+    return ownWidth;
+  }
+  const childrenWidth = children.reduce((total, child, index) =>
+    total + measureTree(child, metrics) + (index ? 22 : 0), 0);
+  const subtreeWidth = Math.max(ownWidth, childrenWidth);
+  metrics.set(node.id, {subtreeWidth, nodeWidth: treeNodeWidth(node)});
+  return subtreeWidth;
+}
+
+function positionTree(node, left, depth, metrics, positions) {
+  const metric = metrics.get(node.id);
+  const children = visibleChildren(node);
+  let center = left + metric.subtreeWidth / 2;
+  if (children.length) {
+    const childrenWidth = children.reduce((total, child, index) =>
+      total + metrics.get(child.id).subtreeWidth + (index ? 22 : 0), 0);
+    let childLeft = left + (metric.subtreeWidth - childrenWidth) / 2;
+    const childCenters = [];
+    for (const child of children) {
+      positionTree(child, childLeft, depth + 1, metrics, positions);
+      childCenters.push(positions.get(child.id).x);
+      childLeft += metrics.get(child.id).subtreeWidth + 22;
+    }
+    center = (childCenters[0] + childCenters.at(-1)) / 2;
+  }
+  positions.set(node.id, {
+    x: center,
+    y: 38 + depth * 106,
+    width: metric.nodeWidth,
+    depth,
+  });
+}
+
+function drawTreeGraph() {
+  if (!treeGraph.root || !treeGraph.stage) return;
+  const metrics = new Map();
+  const positions = new Map();
+  const measuredWidth = measureTree(treeGraph.root, metrics);
+  treeGraph.width = Math.max(720, measuredWidth + 56);
+  positionTree(treeGraph.root, (treeGraph.width - measuredWidth) / 2, 0,
+    metrics, positions);
+  const maxDepth = Math.max(...Array.from(positions.values(), item => item.depth));
+  treeGraph.height = Math.max(250, 116 + maxDepth * 106);
+
+  const svg = svgElement('svg', {
+    class: 'syntax-tree-svg',
+    viewBox: `0 0 ${treeGraph.width} ${treeGraph.height}`,
+    role: 'img',
+    'aria-label': 'Árbol sintáctico gráfico de Compiscript',
+  });
+  const edges = svgElement('g', {class: 'tree-edges'});
+  const nodes = svgElement('g', {class: 'tree-nodes'});
+  svg.append(edges, nodes);
+  appendTreeSvg(treeGraph.root, positions, edges, nodes);
+  treeGraph.stage.replaceChildren(svg);
+  applyTreeZoom();
+}
+
+function appendTreeSvg(node, positions, edges, nodes) {
+  const position = positions.get(node.id);
+  const children = visibleChildren(node);
+  for (const child of children) {
+    const childPosition = positions.get(child.id);
+    const path = svgElement('path', {
+      d: `M ${position.x} ${position.y + 28} C ${position.x} ${position.y + 66}, ${childPosition.x} ${childPosition.y - 38}, ${childPosition.x} ${childPosition.y - 28}`,
+    });
+    edges.append(path);
+    appendTreeSvg(child, positions, edges, nodes);
+  }
+
+  const expandable = node.children.length > 0;
+  const collapsed = treeGraph.collapsed.has(node.id);
+  const group = svgElement('g', {
+    class: `tree-graph-node ${node.kind}${expandable ? ' expandable' : ''}`,
+    transform: `translate(${position.x}, ${position.y})`,
+    tabindex: expandable ? '0' : '-1',
+    role: expandable ? 'button' : 'img',
+    'aria-label': `${node.kind === 'token' ? 'Token' : 'Regla'} ${node.name}`,
+  });
+  const shape = svgElement('rect', {
+    x: -position.width / 2,
+    y: -28,
+    width: position.width,
+    height: 56,
+    rx: node.kind === 'token' ? 27 : 9,
+  });
+  const title = svgElement('title');
+  title.textContent = node.kind === 'token'
+    ? `${node.category || node.name}: ${node.text} · ANTLR ${node.name} (${node.line}:${node.column})`
+    : `${node.name} (${node.line}:${node.column})`;
+  shape.append(title);
+
+  const mainText = svgElement('text', {class: 'tree-node-title', y: '-4'});
+  mainText.textContent = shortened(node.kind === 'token' ? node.text : node.name, 22);
+  const detail = svgElement('text', {class: 'tree-node-detail', y: '14'});
+  detail.textContent = node.kind === 'token'
+    ? shortened(node.category || node.name, 22)
+    : `${node.line}:${node.column} · ${node.children.length} hijo${node.children.length === 1 ? '' : 's'}`;
+  group.append(shape, mainText, detail);
+
+  if (expandable) {
+    const badge = svgElement('g', {
+      class: 'tree-node-badge',
+      transform: `translate(${position.width / 2 - 8}, -20)`,
+    });
+    badge.append(svgElement('circle', {r: '9'}));
+    const badgeText = svgElement('text', {y: '4'});
+    badgeText.textContent = collapsed ? '+' : '−';
+    badge.append(badgeText);
+    group.append(badge);
+    const toggle = () => toggleTreeNode(node);
+    group.addEventListener('click', toggle);
+    group.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggle();
+      }
+    });
+  }
+  nodes.append(group);
+}
+
+function toggleTreeNode(node) {
+  if (treeGraph.collapsed.has(node.id)) {
+    let branch = node;
+    treeGraph.collapsed.delete(branch.id);
+    while (branch.children.length === 1 && branch.children[0].kind === 'rule') {
+      branch = branch.children[0];
+      treeGraph.collapsed.delete(branch.id);
+    }
+  } else {
+    treeGraph.collapsed.add(node.id);
+  }
+  drawTreeGraph();
+}
+
+function shortened(value, limit) {
+  const text = String(value);
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
+function svgElement(name, attributes = {}) {
+  const element = document.createElementNS(SVG_NAMESPACE, name);
+  for (const [key, value] of Object.entries(attributes))
+    element.setAttribute(key, value);
+  return element;
+}
+
+function renderSymbols(semantic) {
+  const panel = document.getElementById('symbols-panel');
+  panel.replaceChildren();
+  const scopes = semantic.scopes || [];
+  const symbols = new Map((semantic.symbols || []).map(symbol => [symbol.id, symbol]));
+  if (!scopes.length) return panel.append(emptyMessage(semantic.reason || 'No se construyó la tabla de símbolos.'));
+  const scopeMap = new Map(scopes.map(scope => [scope.id, scope]));
+  panel.append(createScope(scopeMap.get(0), scopeMap, symbols));
+}
+
+function createScope(scope, scopeMap, symbols) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'scope';
+  const header = document.createElement('div');
+  header.className = 'scope-header';
+  const kind = document.createElement('span');
+  kind.className = 'scope-kind';
+  kind.textContent = scope.kind;
+  const name = document.createElement('span');
+  name.className = 'scope-name';
+  name.textContent = scope.name;
+  const parent = document.createElement('span');
+  parent.className = 'scope-parent';
+  parent.textContent = `scope #${scope.id} · padre ${scope.parent_id}`;
+  header.append(kind, name, parent);
+  wrapper.append(header);
+  if (scope.symbol_ids.length) wrapper.append(symbolTable(scope.symbol_ids.map(id => symbols.get(id)).filter(Boolean), symbols));
+  for (const childId of scope.children) {
+    const child = document.createElement('div');
+    child.className = 'scope-children';
+    child.append(createScope(scopeMap.get(childId), scopeMap, symbols));
+    wrapper.append(child);
+  }
+  return wrapper;
+}
+
+function symbolTable(items, symbols) {
+  const table = makeTable(['Nombre', 'Clase', 'Tipo / firma', 'Estado', 'Capturas', 'Ubicación']);
+  const body = table.tBodies[0];
+  for (const symbol of items) {
+    const signature = symbol.kind === 'function' || symbol.kind === 'method'
+      ? `(${symbol.parameters.join(', ')}) → ${symbol.return_type}` : symbol.type;
+    const captures = symbol.captures.map(id => symbols.get(id)?.name || `#${id}`);
+    addRow(body, [
+      codeCell(symbol.name),
+      symbolRole(symbol.kind),
+      codeCell(signature),
+      symbol.mutable ? (symbol.initialized ? 'mutable · inicializado' : 'mutable · no inicializado') : 'solo lectura',
+      captures.length ? captures.join(', ') : '—',
+      `${symbol.line}:${symbol.column}`,
+    ]);
+  }
+  return table;
+}
+
+function semanticNote(title, text) {
+  const note = document.createElement('div');
+  note.className = 'semantic-note';
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  const explanation = document.createElement('p');
+  explanation.textContent = text;
+  note.append(heading, explanation);
+  return note;
+}
+
+function subsectionTitle(title, description) {
+  const heading = document.createElement('div');
+  heading.className = 'semantic-section-title';
+  const name = document.createElement('h3');
+  name.textContent = title;
+  const detail = document.createElement('p');
+  detail.textContent = description;
+  heading.append(name, detail);
+  return heading;
+}
+
+function symbolType(symbol) {
+  if (symbol.kind === 'function' || symbol.kind === 'method')
+    return `(${(symbol.parameters || []).join(', ')}) → ${symbol.return_type}`;
+  return symbol.type || 'unknown';
+}
+
+function symbolRole(kind) {
+  return ({
+    variable: 'Variable',
+    constant: 'Constante',
+    parameter: 'Parámetro',
+    function: 'Función',
+    method: 'Método',
+    field: 'Atributo',
+    class: 'Clase',
+  })[kind] || kind;
+}
+
+function typeDescription(type) {
+  if (type.endsWith('[]')) return ['Lista', `Colección cuyos elementos son ${type.slice(0, -2)}.`, 'Se asigna a otra lista con elementos compatibles.'];
+  const descriptions = {
+    integer: ['Primitivo numérico', 'Números enteros; admite aritmética y comparaciones.', 'Puede usarse donde se espera integer o promoverse a float.'],
+    float: ['Primitivo numérico', 'Números con decimales; admite aritmética y comparaciones.', 'Acepta valores float y también integer por promoción.'],
+    string: ['Primitivo textual', 'Cadenas de texto; permite concatenación con +.', 'Solo es compatible con string; también puede recibir null.'],
+    boolean: ['Primitivo lógico', 'Valores true o false usados por condiciones y operadores lógicos.', 'Solo es compatible con boolean.'],
+    null: ['Valor especial', 'Representa ausencia de un valor.', 'Puede asignarse a string, listas y objetos.'],
+    void: ['Ausencia de retorno', 'Indica que una función no devuelve un valor.', 'No puede utilizarse como tipo de una variable.'],
+    unknown: ['Tipo pendiente', 'El tipo no pudo determinarse con seguridad.', 'Evita diagnósticos en cascada después de otro error.'],
+  };
+  return descriptions[type] || ['Clase del programa', `Objeto perteneciente a la clase ${type}.`, 'Es compatible con su propia clase y con clases base según la herencia.'];
+}
+
+function renderTypeSystem(semantic) {
+  const panel = document.getElementById('types-panel');
+  panel.replaceChildren();
+  if (semantic.skipped) {
+    panel.append(emptyMessage(semantic.reason || 'La sintaxis debe ser válida para determinar los tipos.'));
+    return;
+  }
+
+  panel.append(semanticNote(
+    '¿Cuándo se construye esta información?',
+    'Se actualiza cada vez que analizas un archivo .cps. El Visitor C++ determina los tipos de declaraciones, parámetros, retornos, listas y objetos mientras recorre el árbol sintáctico.',
+  ));
+
+  const symbols = semantic.symbols || [];
+  const scopes = new Map((semantic.scopes || []).map(scope => [scope.id, scope]));
+  const occurrences = new Map();
+  const registerType = type => {
+    if (!type || ['function', 'class'].includes(type)) return;
+    occurrences.set(type, (occurrences.get(type) || 0) + 1);
+  };
+  symbols.forEach(symbol => {
+    registerType(symbol.type);
+    (symbol.parameters || []).forEach(registerType);
+    if (symbol.kind === 'function' || symbol.kind === 'method') registerType(symbol.return_type);
+  });
+
+  const coreTypes = ['integer', 'float', 'string', 'boolean', 'null', 'void'];
+  const discoveredTypes = [...occurrences.keys()].filter(type => !coreTypes.includes(type)).sort();
+  const allTypes = [...coreTypes, ...discoveredTypes];
+  panel.append(subsectionTitle(
+    'Catálogo de tipos activo',
+    'Incluye los tipos base del lenguaje y los tipos adicionales encontrados en el programa analizado.',
+  ));
+  const catalog = makeTable(['Tipo', 'Categoría', 'Significado sencillo', 'Compatibilidad principal', 'Usos en este .cps']);
+  allTypes.forEach(type => {
+    const [category, meaning, compatibility] = typeDescription(type);
+    addRow(catalog.tBodies[0], [codeCell(type), category, meaning, compatibility, occurrences.get(type) || 0]);
+  });
+  panel.append(catalog);
+
+  panel.append(subsectionTitle(
+    'Tipos determinados en el programa',
+    'Esta tabla usa los símbolos producidos realmente por el análisis actual; una firma muestra parámetros → retorno.',
+  ));
+  if (!symbols.length) {
+    panel.append(emptyMessage('El programa no contiene declaraciones con tipos para mostrar.'));
+    return;
+  }
+  const resolved = makeTable(['Identificador', 'Rol', 'Tipo o firma determinada', 'Entorno', 'Línea']);
+  symbols.forEach(symbol => addRow(resolved.tBodies[0], [
+    codeCell(symbol.name),
+    symbolRole(symbol.kind),
+    codeCell(symbolType(symbol)),
+    scopes.get(symbol.scope_id)?.name || `scope #${symbol.scope_id}`,
+    symbol.line,
+  ]));
+  panel.append(resolved);
+}
+
+function scopeKind(kind) {
+  return ({global: 'Global', function: 'Función', class: 'Clase', block: 'Bloque'})[kind] || kind;
+}
+
+function renderScopeManagement(semantic) {
+  const panel = document.getElementById('scopes-panel');
+  panel.replaceChildren();
+  const scopes = semantic.scopes || [];
+  const symbols = new Map((semantic.symbols || []).map(symbol => [symbol.id, symbol]));
+  if (!scopes.length) {
+    panel.append(emptyMessage(semantic.reason || 'No se crearon ámbitos porque el análisis semántico no pudo ejecutarse.'));
+    return;
+  }
+
+  panel.append(semanticNote(
+    '¿Qué demuestra esta tabla?',
+    'Cada fila es un entorno creado realmente por el Visitor C++. Para resolver un nombre se revisa primero el entorno actual y, si no aparece, se continúa con su padre hasta llegar al ámbito global.',
+  ));
+  const table = makeTable(['ID', 'Entorno', 'Tipo', 'Padre', 'Propietario', 'Símbolos declarados', 'Línea']);
+  scopes.forEach(scope => {
+    const owner = symbols.get(scope.owner_symbol_id);
+    const names = (scope.symbol_ids || []).map(id => symbols.get(id)?.name).filter(Boolean);
+    addRow(table.tBodies[0], [
+      codeCell(`#${scope.id}`),
+      scope.name,
+      scopeKind(scope.kind),
+      scope.parent_id < 0 ? '— (raíz)' : `#${scope.parent_id}`,
+      owner?.name || '—',
+      names.length ? names.join(', ') : '—',
+      scope.line,
+    ]);
+  });
+  panel.append(table);
+
+  const legend = document.createElement('div');
+  legend.className = 'scope-explanation-grid';
+  legend.append(
+    semanticNote('Global', 'Es el entorno raíz. Sus nombres pueden consultarse desde los entornos descendientes.'),
+    semanticNote('Función', 'Guarda parámetros y variables locales. Al terminar la función, esos nombres dejan de estar disponibles.'),
+    semanticNote('Clase', 'Agrupa atributos y métodos pertenecientes a una clase.'),
+    semanticNote('Bloque', 'Se crea para llaves, ciclos y catch; permite controlar visibilidad y sombreado de nombres.'),
+  );
+  panel.append(legend);
+}
+
+function renderTokens(tokens) {
+  const panel = document.getElementById('tokens-panel');
+  panel.replaceChildren();
+  if (!tokens.length) return panel.append(emptyMessage('No se reconocieron tokens.'));
+  const table = makeTable(['#', 'Categoría', 'Token ANTLR', 'Lexema', 'Línea', 'Columna']);
+  tokens.forEach((token, index) => addRow(table.tBodies[0], [
+    index + 1, token.category || 'Símbolo', codeCell(token.type),
+    codeCell(token.text), token.line, token.column,
+  ]));
+  panel.append(table);
+}
+
+function renderClasses(classes, symbols) {
+  const panel = document.getElementById('classes-panel');
+  panel.replaceChildren();
+  if (!classes.length) return panel.append(emptyMessage('El programa no declara clases.'));
+  const byId = new Map(symbols.map(symbol => [symbol.id, symbol]));
+  const grid = document.createElement('div');
+  grid.className = 'class-grid';
+  for (const item of classes) {
+    const card = document.createElement('article');
+    card.className = 'class-card';
+    const title = document.createElement('h3');
+    title.textContent = item.name;
+    const base = document.createElement('p');
+    base.textContent = item.base ? `Hereda de ${item.base}` : 'Sin clase base';
+    card.append(title, base, tagList('Campos', Object.values(item.fields).map(id => byId.get(id)?.name)), tagList('Métodos', Object.values(item.methods).map(id => byId.get(id)?.name)));
+    grid.append(card);
+  }
+  panel.append(grid);
+}
+
+function tagList(label, values) {
+  const section = document.createElement('div');
+  const caption = document.createElement('span');
+  caption.className = 'muted';
+  caption.textContent = `${label}: `;
+  section.append(caption);
+  if (!values.filter(Boolean).length) section.append('—');
+  for (const value of values.filter(Boolean)) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = value;
+    section.append(tag);
+  }
+  return section;
+}
+
+function makeTable(headers) {
+  const table = document.createElement('table');
+  table.className = 'data-table';
+  const head = table.createTHead().insertRow();
+  headers.forEach(text => {
+    const cell = document.createElement('th');
+    cell.textContent = text;
+    head.append(cell);
+  });
+  table.createTBody();
+  return table;
+}
+
+function addRow(body, values) {
+  const row = body.insertRow();
+  for (const value of values) {
+    const cell = row.insertCell();
+    if (value instanceof Node) cell.append(value);
+    else cell.textContent = value;
+  }
+}
+
+function codeCell(text) {
+  const code = document.createElement('code');
+  code.textContent = text;
+  return code;
+}
+
+function emptyMessage(text) {
+  const empty = document.createElement('div');
+  empty.className = 'empty-result';
+  empty.textContent = text;
+  return empty;
+}
+
+function selectPanel(panelId) {
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.panel === panelId));
+  document.querySelectorAll('.result-panel').forEach(panel => panel.classList.toggle('active', panel.id === panelId));
+}
+
+function testMetric(value, label) {
+  const metric = document.createElement('div');
+  metric.className = 'test-metric';
+  const number = document.createElement('strong');
+  number.textContent = value;
+  const caption = document.createElement('span');
+  caption.textContent = label;
+  metric.append(number, caption);
+  return metric;
+}
+
+function testDetail(label, value, code = false) {
+  const section = document.createElement('div');
+  section.className = 'test-detail';
+  const title = document.createElement('strong');
+  title.textContent = label;
+  const content = document.createElement(code ? 'pre' : 'p');
+  content.textContent = value || '—';
+  section.append(title, content);
+  return section;
+}
+
+function renderTestReport(resultBox, data) {
+  const summary = data.summary || {};
+  resultBox.replaceChildren();
+  resultBox.className = `tests-result ${data.ok ? 'pass' : 'fail'}`;
+
+  const heading = document.createElement('div');
+  heading.className = 'test-report-heading';
+  const titleGroup = document.createElement('div');
+  const title = document.createElement('h3');
+  title.textContent = data.ok
+    ? 'Batería semántica aprobada'
+    : 'La batería encontró fallos';
+  const explanation = document.createElement('p');
+  explanation.textContent = 'Un “error esperado” aprueba únicamente si el analizador produce el diagnóstico correcto; no basta con que el programa falle.';
+  titleGroup.append(title, explanation);
+
+  const actions = document.createElement('div');
+  actions.className = 'test-report-actions';
+  const expandButton = document.createElement('button');
+  expandButton.type = 'button';
+  expandButton.className = 'small secondary';
+  expandButton.textContent = 'Expandir todo';
+  const collapseButton = document.createElement('button');
+  collapseButton.type = 'button';
+  collapseButton.className = 'small secondary';
+  collapseButton.textContent = 'Contraer casos';
+  actions.append(expandButton, collapseButton);
+  heading.append(titleGroup, actions);
+  resultBox.append(heading);
+
+  const metrics = document.createElement('div');
+  metrics.className = 'test-metrics';
+  metrics.append(
+    testMetric(`${summary.passed || 0}/${summary.total || 0}`, 'Pruebas aprobadas'),
+    testMetric(summary.valid_cases || 0, 'Casos válidos'),
+    testMetric(summary.expected_error_cases || 0, 'Errores esperados'),
+    testMetric(summary.failed || 0, 'Fallos reales'),
+  );
+  resultBox.append(metrics);
+
+  const categoryContainer = document.createElement('div');
+  categoryContainer.className = 'test-categories';
+  for (const category of data.categories || []) {
+    const categoryDetails = document.createElement('details');
+    categoryDetails.className = 'test-category';
+    categoryDetails.open = true;
+    const categorySummary = document.createElement('summary');
+    const categoryName = document.createElement('span');
+    categoryName.textContent = category.name;
+    const categoryCount = document.createElement('span');
+    categoryCount.className = category.passed === category.total ? 'test-count pass' : 'test-count fail';
+    categoryCount.textContent = `${category.passed}/${category.total}`;
+    categorySummary.append(categoryName, categoryCount);
+    categoryDetails.append(categorySummary);
+
+    const cases = document.createElement('div');
+    cases.className = 'test-cases';
+    for (const test of category.tests || []) {
+      const testCase = document.createElement('details');
+      testCase.className = `test-case ${test.passed ? 'pass' : 'fail'}`;
+      if (!test.passed) testCase.open = true;
+      const testSummary = document.createElement('summary');
+      const state = document.createElement('span');
+      state.className = 'test-state';
+      state.textContent = test.passed ? '✓' : '✕';
+      const description = document.createElement('span');
+      description.className = 'test-description';
+      const rule = document.createElement('strong');
+      rule.textContent = test.rule;
+      const name = document.createElement('span');
+      name.textContent = test.name;
+      description.append(rule, name);
+      const kind = document.createElement('span');
+      kind.className = `test-kind ${test.kind === 'Error esperado' ? 'negative' : 'positive'}`;
+      kind.textContent = test.kind;
+      testSummary.append(state, description, kind);
+      testCase.append(testSummary);
+
+      const body = document.createElement('div');
+      body.className = 'test-case-body';
+      const explanation = testDetail('¿Qué está pasando?', test.explanation);
+      explanation.classList.add('test-explanation');
+      body.append(
+        testDetail('Código Compiscript probado', test.source, true),
+        explanation,
+        testDetail('Resultado esperado', test.expected),
+        testDetail('Resultado obtenido', test.actual),
+      );
+      if ((test.codes || []).length) {
+        const diagnostics = document.createElement('div');
+        diagnostics.className = 'test-detail test-diagnostics';
+        const diagnosticsTitle = document.createElement('strong');
+        diagnosticsTitle.textContent = 'Diagnósticos producidos';
+        diagnostics.append(diagnosticsTitle);
+        for (const diagnostic of test.codes) {
+          const badge = document.createElement('code');
+          badge.textContent = diagnostic;
+          diagnostics.append(badge);
+        }
+        body.append(diagnostics);
+      }
+      testCase.append(body);
+      cases.append(testCase);
+    }
+    categoryDetails.append(cases);
+    categoryContainer.append(categoryDetails);
+  }
+  resultBox.append(categoryContainer);
+
+  expandButton.addEventListener('click', () => {
+    resultBox.querySelectorAll('details').forEach(detail => { detail.open = true; });
+  });
+  collapseButton.addEventListener('click', () => {
+    resultBox.querySelectorAll('.test-category').forEach(detail => { detail.open = true; });
+    resultBox.querySelectorAll('.test-case').forEach(detail => { detail.open = false; });
+  });
+}
+
+async function runTests() {
+  const button = document.getElementById('tests-button');
+  const resultBox = document.getElementById('tests-result');
+  button.disabled = true;
+  resultBox.className = 'tests-result';
+  resultBox.textContent = 'Ejecutando batería C++…';
+  try {
+    const response = await fetch('/api/tests', {method: 'POST'});
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    renderTestReport(resultBox, data);
+    setStatus(data.ok ? 'Batería de pruebas aprobada.' : 'La batería encontró fallos.', data.ok ? 'success' : 'error');
+  } catch (error) {
+    resultBox.textContent = error.message;
+    resultBox.classList.add('fail');
+    setStatus(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
 }
