@@ -1,3 +1,4 @@
+// Captura errores léxicos y sintácticos de ANTLR con línea y columna.
 #include "compiscript/diagnostics.h"
 
 #include <utility>

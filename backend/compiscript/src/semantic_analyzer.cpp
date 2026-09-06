@@ -1,3 +1,5 @@
+// Visitor principal: recorre el árbol de ANTLR y aplica todas las reglas
+// semánticas exigidas para tipos, ámbitos, funciones, flujo, clases y listas.
 #include "compiscript/semantic_analyzer.h"
 
 #include <algorithm>
@@ -19,6 +21,9 @@ size_t columnOf(antlr4::ParserRuleContext *ctx) {
 
 } // namespace
 
+// PUNTO DE ENTRADA SEMÁNTICO
+// Todo análisis comienza con un entorno global y termina reuniendo las tablas y
+// diagnósticos que consumirá el frontend.
 SemanticAnalyzer::SemanticAnalyzer() { newScope("global", "global", -1, 1); }
 
 SemanticResult
@@ -34,6 +39,9 @@ SemanticAnalyzer::analyze(CompiscriptParser::ProgramContext *program) {
   return result;
 }
 
+// MANEJO DE ÁMBITOS Y TABLA DE SÍMBOLOS
+// Los ámbitos forman una jerarquía padre-hijo. Las declaraciones se guardan en
+// el ámbito actual y las búsquedas avanzan hacia los ámbitos exteriores.
 int SemanticAnalyzer::newScope(const std::string &name, const std::string &kind,
                                int parent_id, size_t line,
                                int owner_symbol_id) {
@@ -136,6 +144,9 @@ int SemanticAnalyzer::resolveSymbol(const std::string &name,
   return -1;
 }
 
+// SISTEMA DE TIPOS
+// Estas ayudas validan tipos conocidos y compatibilidad, incluyendo promoción
+// de integer a float, listas y relaciones de herencia entre clases.
 std::set<std::string> SemanticAnalyzer::classNames() const {
   std::set<std::string> names;
   for (const auto &item : classes_)
@@ -220,6 +231,9 @@ SemanticAnalyzer::operators(antlr4::ParserRuleContext *ctx,
   return result;
 }
 
+// FUNCIONES, PROCEDIMIENTOS Y CLASES
+// Se registran antes de visitar sus cuerpos para permitir recursividad,
+// referencias adelantadas y validación de miembros.
 int SemanticAnalyzer::predeclareClass(
     CompiscriptParser::ClassDeclarationContext *ctx) {
   auto known = declaration_symbols_.find(ctx);
@@ -324,6 +338,9 @@ void SemanticAnalyzer::predeclareStatements(
   }
 }
 
+// REGLAS GENERALES: CÓDIGO MUERTO
+// Una sentencia posterior a return, break o continue se reporta como
+// inalcanzable; un if termina solo cuando terminan sus dos ramas.
 bool SemanticAnalyzer::bodyTerminates(
     CompiscriptParser::ControlBodyContext *body) const {
   if (body->statement())
@@ -367,6 +384,7 @@ bool SemanticAnalyzer::analyzeStatements(
   return terminated;
 }
 
+// RECORRIDO DEL PROGRAMA Y CREACIÓN DE ÁMBITOS DE BLOQUE
 std::any
 SemanticAnalyzer::visitProgram(CompiscriptParser::ProgramContext *ctx) {
   predeclareStatements(ctx->statement());
@@ -393,6 +411,9 @@ SemanticAnalyzer::visitControlBody(CompiscriptParser::ControlBodyContext *ctx) {
   return ctx->block() ? visit(ctx->block()) : visit(ctx->statement());
 }
 
+// SISTEMA DE TIPOS EN DECLARACIONES
+// Se infiere o comprueba el tipo inicial y se impide usar void en variables o
+// constantes. La gramática hace obligatoria la inicialización de const.
 std::any SemanticAnalyzer::visitVariableDeclaration(
     CompiscriptParser::VariableDeclarationContext *ctx) {
   const std::string name = ctx->Identifier()->getText();
@@ -465,6 +486,9 @@ std::any SemanticAnalyzer::visitConstantDeclaration(
   return ExprResult{};
 }
 
+// FUNCIONES Y PROCEDIMIENTOS
+// Crea el entorno de la función, declara parámetros y valida el tipo y la
+// presencia de return. Un procedimiento se representa con retorno void.
 std::any SemanticAnalyzer::visitFunctionDeclaration(
     CompiscriptParser::FunctionDeclarationContext *ctx) {
   const std::string kind = class_stack_.empty() ? "function" : "method";
@@ -519,6 +543,8 @@ std::any SemanticAnalyzer::visitFunctionDeclaration(
   return ExprResult{};
 }
 
+// CLASES Y OBJETOS
+// Activa el entorno de clase para analizar sus atributos, métodos y uso de this.
 std::any SemanticAnalyzer::visitClassDeclaration(
     CompiscriptParser::ClassDeclarationContext *ctx) {
   const int symbol_id = predeclareClass(ctx);
@@ -549,6 +575,9 @@ SemanticAnalyzer::visitClassMember(CompiscriptParser::ClassMemberContext *ctx) {
   return visit(ctx->constantDeclaration());
 }
 
+// SISTEMA DE TIPOS EN ASIGNACIONES
+// Comprueba que el destino sea modificable y que el valor sea compatible con
+// el tipo declarado; también rechaza la reasignación de constantes.
 ExprResult
 SemanticAnalyzer::validateAssignment(const ExprResult &target,
                                      const ExprResult &value,
@@ -591,6 +620,9 @@ std::any SemanticAnalyzer::visitPrintStatement(
   return ExprResult{};
 }
 
+// CONTROL DE FLUJO
+// Exige condiciones booleanas y usa loop_depth_ y function_stack_ para limitar
+// correctamente break, continue y return.
 std::any
 SemanticAnalyzer::visitIfStatement(CompiscriptParser::IfStatementContext *ctx) {
   const ExprResult condition = visitExpressionNode(ctx->expression());
@@ -740,6 +772,9 @@ std::any SemanticAnalyzer::visitSwitchStatement(
   return ExprResult{};
 }
 
+// SISTEMA DE TIPOS EN EXPRESIONES
+// Cada visita obtiene los tipos de sus hijos y sintetiza el tipo resultante;
+// aquí se validan operadores ternarios, lógicos, comparativos y aritméticos.
 std::any
 SemanticAnalyzer::visitExpression(CompiscriptParser::ExpressionContext *ctx) {
   return visit(ctx->assignmentExpr());
@@ -947,6 +982,9 @@ SemanticAnalyzer::visitLiteralExpr(CompiscriptParser::LiteralExprContext *ctx) {
   return ExprResult{TYPE_NULL};
 }
 
+// LISTAS Y ESTRUCTURAS DE DATOS
+// Una lista literal debe tener elementos compatibles y sintetiza un tipo como
+// integer[] o string[].
 std::any SemanticAnalyzer::visitArrayLiteral(
     CompiscriptParser::ArrayLiteralContext *ctx) {
   const auto expressions = ctx->expression();
@@ -982,6 +1020,9 @@ std::any SemanticAnalyzer::visitIdentifierExpr(
   return ExprResult{symbol.type, symbol_id, true};
 }
 
+// FUNCIONES: LLAMADAS Y ARGUMENTOS
+// Valida que el valor sea invocable y que cada argumento coincida en cantidad,
+// posición y tipo con los parámetros declarados.
 std::vector<ExprResult>
 SemanticAnalyzer::arguments(CompiscriptParser::ArgumentsContext *ctx) {
   std::vector<ExprResult> result;
@@ -1018,6 +1059,9 @@ void SemanticAnalyzer::validateCallArguments(
   }
 }
 
+// CLASES Y OBJETOS: MIEMBROS, CONSTRUCTORES Y THIS
+// Busca atributos y métodos también en clases base, y valida la creación de
+// objetos y el contexto donde puede utilizarse this.
 int SemanticAnalyzer::findMember(const std::string &class_name,
                                  const std::string &name, bool methods) const {
   std::set<std::string> visited;
@@ -1111,6 +1155,9 @@ SemanticAnalyzer::visitThisExpr(CompiscriptParser::ThisExprContext *ctx) {
   return ExprResult{Type{class_stack_.back()}};
 }
 
+// ACCESOS ENCADENADOS
+// Recorre llamadas, accesos a miembros e índices. En listas exige índices
+// integer y devuelve el tipo de sus elementos.
 std::any SemanticAnalyzer::visitLeftHandSide(
     CompiscriptParser::LeftHandSideContext *ctx) {
   ExprResult result = visitExpressionNode(ctx->primaryAtom());
@@ -1141,6 +1188,8 @@ std::any SemanticAnalyzer::visitLeftHandSide(
   return result;
 }
 
+// CLASES: HERENCIA
+// Comprueba que la clase base exista y que la jerarquía no contenga ciclos.
 void SemanticAnalyzer::validateInheritance(antlr4::ParserRuleContext *ctx) {
   for (auto &entry : classes_) {
     ClassInfo &info = entry.second;

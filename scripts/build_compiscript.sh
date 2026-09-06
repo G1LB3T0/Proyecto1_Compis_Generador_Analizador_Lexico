@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Descarga dependencias faltantes, regenera ANTLR, compila y ejecuta las pruebas.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -1,3 +1,4 @@
+// Controlador del IDE: archivos, análisis, árbol gráfico y tablas semánticas.
 const editor = document.getElementById('source-editor');
 const filenameInput = document.getElementById('filename');
 const statusBox = document.getElementById('status');
@@ -22,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateCursor();
 });
 
+// Eventos principales del editor y administración de archivos .cps.
 function bindEvents() {
   document.getElementById('load-example').addEventListener('click', () => {
     const name = document.getElementById('example-select').value;
@@ -149,6 +151,7 @@ function downloadFile() {
   URL.revokeObjectURL(link.href);
 }
 
+// Solicita al CLI C++ el análisis y distribuye sus resultados entre paneles.
 async function analyze() {
   const button = document.getElementById('analyze-button');
   button.disabled = true;
@@ -256,6 +259,7 @@ function jumpTo(line, column) {
   updateCursor();
 }
 
+// Construcción interactiva del árbol sintáctico SVG.
 function renderTree(tree) {
   const panel = document.getElementById('tree-panel');
   panel.replaceChildren();
@@ -532,6 +536,7 @@ function svgElement(name, attributes = {}) {
   return element;
 }
 
+// Vistas de símbolos, sistema de tipos, ámbitos, tokens y clases.
 function renderSymbols(semantic) {
   const panel = document.getElementById('symbols-panel');
   panel.replaceChildren();
@@ -973,6 +978,7 @@ function renderTestReport(resultBox, data) {
   });
 }
 
+// Ejecuta y presenta la batería C++ con el detalle de cada regla semántica.
 async function runTests() {
   const button = document.getElementById('tests-button');
   const resultBox = document.getElementById('tests-result');

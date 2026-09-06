@@ -1,3 +1,4 @@
+// Ejecutable de consola: lee un .cps, solicita su análisis y escribe el JSON.
 #include "compiscript/json.h"
 #include "compiscript/service.h"
 

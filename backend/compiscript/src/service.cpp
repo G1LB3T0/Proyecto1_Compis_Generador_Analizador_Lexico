@@ -1,3 +1,4 @@
+// Orquesta el front-end: fuente -> lexer -> parser -> Visitor semántico.
 #include "compiscript/service.h"
 
 #include "CompiscriptLexer.h"
@@ -16,12 +17,15 @@ AnalysisResult analyzeSource(const std::string &source,
   AnalysisResult result;
   result.filename = filename;
 
+  // Fase léxica: ANTLR transforma caracteres en tokens y reporta símbolos no
+  // reconocidos mediante nuestro listener.
   antlr4::ANTLRInputStream input(source);
   CompiscriptLexer lexer(&input);
   CollectingErrorListener lexical_listener("léxico");
   lexer.removeErrorListeners();
   lexer.addErrorListener(&lexical_listener);
 
+  // La tabla visible de tokens conserva lexema, categoría y ubicación.
   antlr4::CommonTokenStream tokens(&lexer);
   tokens.fill();
   for (antlr4::Token *token : tokens.getTokens()) {
@@ -40,6 +44,8 @@ AnalysisResult analyzeSource(const std::string &source,
                              token->getCharPositionInLine() + 1});
   }
 
+  // Fase sintáctica: el parser valida la gramática y produce el parse tree que
+  // luego se serializa para su representación visual.
   CompiscriptParser parser(&tokens);
   CollectingErrorListener syntax_listener("sintáctico");
   parser.removeErrorListeners();
@@ -53,6 +59,7 @@ AnalysisResult analyzeSource(const std::string &source,
                                    parser_errors.begin(), parser_errors.end());
   result.syntax_ok = result.syntax_diagnostics.empty();
   if (result.syntax_ok) {
+    // La semántica solo se ejecuta sobre un árbol sintácticamente válido.
     SemanticAnalyzer analyzer;
     result.semantic = analyzer.analyze(tree);
   } else {

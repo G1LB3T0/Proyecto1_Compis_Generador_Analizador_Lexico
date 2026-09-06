@@ -1,3 +1,4 @@
+// Modelos compartidos: tipos, símbolos, ámbitos, clases y diagnósticos.
 #pragma once
 
 #include <map>
@@ -7,6 +8,7 @@
 
 namespace compiscript {
 
+// Tipo semántico completo; los sufijos [] representan listas anidadas.
 struct Type {
   std::string name = "unknown";
 
@@ -33,6 +35,7 @@ inline const Type TYPE_ERROR{"error"};
 inline const Type TYPE_FUNCTION{"function"};
 inline const Type TYPE_CLASS{"class"};
 
+// Error listo para mostrar, con categoría y ubicación en el código fuente.
 struct Diagnostic {
   std::string code;
   std::string category;
@@ -42,6 +45,7 @@ struct Diagnostic {
   size_t column = 0;
 };
 
+// Entrada de la tabla de símbolos: declaración, firma y relaciones de closure.
 struct Symbol {
   int id = -1;
   std::string name;
@@ -62,6 +66,7 @@ struct Symbol {
   std::set<int> captured_by;
 };
 
+// Entorno anidado con referencia a su padre, símbolos propios e hijos.
 struct Scope {
   int id = -1;
   std::string name;
@@ -73,6 +78,7 @@ struct Scope {
   std::vector<int> children;
 };
 
+// Índice de atributos y métodos declarados por cada clase.
 struct ClassInfo {
   std::string name;
   std::string base;
@@ -82,6 +88,7 @@ struct ClassInfo {
   std::map<std::string, int> methods;
 };
 
+// Datos producidos exclusivamente por el recorrido semántico.
 struct SemanticResult {
   bool ok = false;
   bool skipped = false;
@@ -100,6 +107,7 @@ struct TokenInfo {
   size_t column = 0;
 };
 
+// Resultado unificado de las fases léxica, sintáctica y semántica.
 struct AnalysisResult {
   bool ok = false;
   bool syntax_ok = false;

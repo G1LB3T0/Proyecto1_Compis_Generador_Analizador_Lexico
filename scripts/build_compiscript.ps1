@@ -1,3 +1,4 @@
+# Variante de Windows para generar ANTLR, compilar el analizador y probarlo.
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot

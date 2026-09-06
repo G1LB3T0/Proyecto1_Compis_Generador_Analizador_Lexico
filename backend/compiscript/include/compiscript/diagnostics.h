@@ -1,3 +1,4 @@
+// Declara el listener que convierte los errores de ANTLR en diagnósticos del IDE.
 #pragma once
 
 #include "antlr4-runtime.h"

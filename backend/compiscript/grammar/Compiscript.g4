@@ -1,3 +1,4 @@
+// Fuente de verdad del lenguaje; ANTLR genera el lexer, parser y Visitors.
 grammar Compiscript;
 
 // Gramática oficial extendida para reconciliar el enunciado con sus ejemplos:

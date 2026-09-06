@@ -1,3 +1,4 @@
+// Batería de integración: ejecuta casos válidos y fallidos por regla semántica.
 #include "compiscript/json.h"
 #include "compiscript/service.h"
 

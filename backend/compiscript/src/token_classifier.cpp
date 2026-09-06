@@ -1,3 +1,4 @@
+// Agrupa los tokens reconocidos por ANTLR en categorías fáciles de presentar.
 #include "compiscript/token_classifier.h"
 
 #include <set>

@@ -1,3 +1,4 @@
+// Contrato del Visitor que aplica las especificaciones semánticas de Compiscript.
 #pragma once
 
 #include "CompiscriptBaseVisitor.h"
@@ -97,6 +98,7 @@ public:
   std::any visitThisExpr(CompiscriptParser::ThisExprContext *ctx) override;
 
 private:
+  // Estado contextual heredado mientras el Visitor baja por el árbol.
   std::vector<Scope> scopes_;
   std::vector<Symbol> symbols_;
   std::map<std::string, ClassInfo> classes_;
@@ -108,6 +110,7 @@ private:
   std::unordered_map<const void *, int> declaration_symbols_;
   std::set<const void *> visited_declarations_;
 
+  // Operaciones centrales de ámbitos, símbolos, diagnósticos y tipos.
   int newScope(const std::string &name, const std::string &kind, int parent_id,
                size_t line, int owner_symbol_id = -1);
   int declareSymbol(const std::string &name, const std::string &kind,
@@ -136,6 +139,7 @@ private:
   operators(antlr4::ParserRuleContext *ctx,
             const std::set<std::string> &accepted) const;
 
+  // Pasadas previas necesarias para recursividad, clases y código muerto.
   void predeclareStatements(
       const std::vector<CompiscriptParser::StatementContext *> &statements);
   int predeclareFunction(CompiscriptParser::FunctionDeclarationContext *ctx,
@@ -148,6 +152,7 @@ private:
   bool terminates(CompiscriptParser::StatementContext *statement) const;
   bool bodyTerminates(CompiscriptParser::ControlBodyContext *body) const;
 
+  // Validaciones especializadas de asignaciones, llamadas, objetos y herencia.
   ExprResult validateAssignment(const ExprResult &target,
                                 const ExprResult &value,
                                 antlr4::ParserRuleContext *ctx);

@@ -1,3 +1,4 @@
+# Configura ANTLR C++, la biblioteca del analizador, el CLI y sus pruebas.
 cmake_minimum_required(VERSION 3.20)
 project(compiscript_analyzer LANGUAGES CXX)
 

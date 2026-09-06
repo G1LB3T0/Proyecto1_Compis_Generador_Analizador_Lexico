@@ -1,3 +1,4 @@
+// Reglas compartidas para construir listas y comprobar compatibilidad de tipos.
 #include "compiscript/model.h"
 
 namespace compiscript {

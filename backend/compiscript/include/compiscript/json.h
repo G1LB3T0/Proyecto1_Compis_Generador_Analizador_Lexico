@@ -1,3 +1,4 @@
+// Declara la serialización de los resultados del analizador a JSON.
 #pragma once
 
 #include "compiscript/model.h"

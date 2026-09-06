@@ -1,3 +1,4 @@
+// Serializa de forma segura todos los resultados para consumirlos desde el IDE.
 #include "compiscript/json.h"
 
 #include <iomanip>

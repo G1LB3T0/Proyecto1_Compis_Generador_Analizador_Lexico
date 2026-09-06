@@ -1,3 +1,4 @@
+// Recorre el parse tree de ANTLR y conserva su jerarquía en formato JSON.
 #include "compiscript/tree_serializer.h"
 
 #include "compiscript/json.h"
@@ -11,6 +12,7 @@ namespace {
 
 std::string serialize(antlr4::tree::ParseTree *node, antlr4::Parser &parser) {
   std::ostringstream output;
+  // Las hojas son tokens reales; conservan lexema, categoría y posición.
   if (auto *terminal = dynamic_cast<antlr4::tree::TerminalNode *>(node)) {
     antlr4::Token *token = terminal->getSymbol();
     std::string name(parser.getVocabulary().getSymbolicName(token->getType()));
@@ -30,6 +32,7 @@ std::string serialize(antlr4::tree::ParseTree *node, antlr4::Parser &parser) {
     return output.str();
   }
 
+  // Los demás nodos representan reglas y se serializan recursivamente.
   auto *context = dynamic_cast<antlr4::ParserRuleContext *>(node);
   std::string name = "unknown";
   size_t line = 0;

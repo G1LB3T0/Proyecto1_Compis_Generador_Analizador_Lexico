@@ -21,6 +21,7 @@ EXAMPLES_DIR = BASE_DIR / "backend" / "examples" / "compiscript"
 EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# Restringe la lectura y escritura a nombres .cps dentro de ejemplos.
 def safe_example_path(filename: str) -> Path | None:
     if not filename or Path(filename).name != filename or not filename.endswith(".cps"):
         return None
@@ -57,6 +58,7 @@ def save_file():
     return jsonify({"ok": True, "filename": path.name})
 
 
+# Puente hacia el núcleo C++: Flask no implementa reglas del compilador.
 @app.post("/api/analyze")
 def analyze():
     if not COMPISCRIPT_CLI.is_file():
@@ -96,6 +98,7 @@ def analyze():
         }), 500
 
 
+# Ejecuta el binario C++ de pruebas y entrega su reporte al frontend.
 @app.post("/api/tests")
 def run_tests():
     if not TEST_BINARY.is_file():
