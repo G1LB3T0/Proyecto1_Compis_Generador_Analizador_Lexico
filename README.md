@@ -1,381 +1,255 @@
-# Compiscript — Compiladores 2
+# Compiscript — Analizador sintáctico y semántico
 
-Rama de desarrollo del analizador sintáctico y semántico de **Compiscript**, un
-subconjunto educativo de TypeScript. Esta etapa utilizará la gramática oficial
-con ANTLR y añadirá Visitors semánticos, tabla de símbolos con ámbitos
-anidados, sistema de tipos, validación de funciones, clases, listas, control de
-flujo y una batería automatizada de pruebas.
+Proyecto 1 de Compiladores 2 desarrollado por:
 
-El punto de partida conserva todo el trabajo de Compiladores 1 para reutilizar
-el IDE Flask, la comunicación JSON, el manejo de archivos, los componentes de
-visualización y la experiencia obtenida al construir YALex y YAPar.
+- Joel Jaquez — #23369
+- Luis Gonzalez — #23353
 
-## Material oficial de esta etapa
+Proyecto de **Compiladores 2** que implementa el frontend de Compiscript con
+ANTLR 4.13.2 y C++17. El sistema reconoce archivos `.cps`, construye el árbol
+sintáctico, ejecuta un Visitor semántico, reporta diagnósticos con ubicación y
+expone la tabla de símbolos completa por ámbito en un IDE web.
 
-- [Enunciado del proyecto](Instrucciones/Generador_de_Analizadores_Semánticos.md)
-- [Especificación de Compiscript](Instrucciones/Especificaciones%20(1).md)
-- [Gramática oficial de Compiscript](Instrucciones/Compiscript%20(1).g4)
+El analizador es C++. Python solo se conserva como el adaptador Flask que sirve
+el IDE y comunica el navegador con el ejecutable `compiscript_cli`; ninguna
+regla léxica, sintáctica o semántica está implementada en Python.
 
-El desarrollo de ANTLR todavía no forma parte de este commit inicial. Primero
-se conserva una base común verificable; las siguientes entregas incorporarán
-el nuevo pipeline por módulos y con pruebas asociadas a cada regla semántica.
+## Estado del proyecto
 
-## Base heredada: generadores YALex y YAPar
+- Lexer, parser y Visitor generados desde `Compiscript.g4` con el target C++ de
+  ANTLR.
+- Árbol sintáctico concreto navegable en el IDE.
+- Tabla de símbolos jerárquica para ámbitos globales, clases, funciones y
+  bloques.
+- Validación de tipos, ámbitos, funciones, closures, flujo, clases, herencia,
+  constructores y listas.
+- Diagnósticos léxicos, sintácticos y semánticos con línea y columna.
+- Batería C++ de escenarios válidos e inválidos ejecutable desde CTest o el IDE.
+- Ejemplos `.cps` para demostración.
 
-Proyecto académico desarrollado durante **Compiladores 1** para construir, desde
-cero, generadores de analizadores léxicos y sintácticos. El repositorio reúne
-dos entregas consecutivas del curso:
-
-1. Un generador de analizadores léxicos basado en especificaciones YALex.
-2. Un generador de analizadores sintácticos LL(1), SLR(1) y LALR basado en
-   especificaciones YAPar.
-
-Ambas etapas están integradas en una interfaz web tipo IDE que permite editar
-especificaciones, construir los analizadores, visualizar sus estructuras y
-evaluar cadenas o archivos de entrada.
-
-> El cierre inmutable de esta base se encuentra en la etiqueta
-> `compiladores-1-final` y en la rama `compiladores-1`.
-
-## Contenido
-
-- [Proyecto 1: generador léxico YALex](#proyecto-1-generador-léxico-yalex)
-- [Proyecto 2: generador sintáctico YAPar](#proyecto-2-generador-sintáctico-yapar)
-- [Pipeline integrado](#pipeline-integrado)
-- [Interfaz gráfica](#interfaz-gráfica)
-- [Estructura del repositorio](#estructura-del-repositorio)
-- [Compilación y ejecución](#compilación-y-ejecución)
-- [Ejemplos](#ejemplos)
-- [Pruebas realizadas](#pruebas-realizadas)
-- [Alcance y limitaciones](#alcance-y-limitaciones)
-- [Historial del proyecto](#historial-del-proyecto)
-
-## Proyecto 1: generador léxico YALex
-
-La primera etapa implementa un generador de analizadores léxicos inspirado en
-Lex y `ocamllex`. Recibe un archivo `.yal`, interpreta sus definiciones
-regulares y genera un analizador léxico en C++.
-
-### Entrada
-
-Una especificación YALex con la forma general:
+## Arquitectura
 
 ```text
-{ header opcional }
-
-let identificador = expresion_regular
-
-rule punto_de_entrada =
-    expresion_regular { accion }
-  | expresion_regular { accion }
-
-{ trailer opcional }
+Código .cps
+    │
+    ▼
+CompiscriptLexer (ANTLR, C++)
+    │ tokens
+    ▼
+CompiscriptParser (ANTLR, C++)
+    │ parse tree
+    ├──────────────► serialización del árbol ► IDE
+    │
+    ▼
+SemanticAnalyzer (Visitor C++)
+    │
+    ├── sistema de tipos y compatibilidad
+    ├── resolución léxica de nombres
+    ├── funciones, recursión y closures
+    ├── flujo de control y código muerto
+    ├── clases, herencia, miembros y constructores
+    └── listas e índices
+    │
+    ▼
+JSON: diagnósticos + scopes + símbolos + clases
+    │
+    ▼
+Flask (adaptador) ► IDE web
 ```
 
-El lenguaje implementado admite:
+El diseño detallado se encuentra en
+[docs/arquitectura-compiscript.md](docs/arquitectura-compiscript.md).
 
-- Comentarios `(* ... *)`.
-- Definiciones reutilizables mediante `let`.
-- Caracteres y cadenas constantes.
-- Clases y rangos de caracteres.
-- Complemento de conjuntos.
-- Alternancia y concatenación.
-- Cerraduras `*`, `+` y operador opcional `?`.
-- Comodín `_`.
-- Prioridad por orden de declaración.
-- Selección del lexema más largo.
-- Bloques de acciones escritos en C++.
+## Requisitos
 
-Ejemplo simplificado:
-
-```text
-let letter = ['A'-'Z''a'-'z''_']
-let digit  = ['0'-'9']
-let alnum  = ['A'-'Z''a'-'z''0'-'9''_']
-
-rule tokens =
-    [' ''\t''\n''\r']+ { }
-  | letter alnum*       { std::cout << "<id, \"" << lxm << "\">\n"; }
-  | '+'                 { std::cout << "<OP_PLUS, \"+\">\n"; }
-```
-
-### Construcción del analizador léxico
-
-El generador realiza las siguientes fases:
-
-1. Lee la especificación y expande las definiciones `let`.
-2. Convierte cada expresión regular en un árbol sintáctico.
-3. Combina las reglas y agrega marcadores de aceptación por prioridad.
-4. Calcula `nullable`, `firstpos`, `lastpos` y `followpos`.
-5. Construye directamente el AFD.
-6. Minimiza el AFD mediante refinamiento de particiones.
-7. Serializa el autómata en JSON.
-8. Genera código fuente C++ para el lexer resultante.
-9. Produce archivos DOT para visualizar el árbol y el autómata.
-
-### Salidas
-
-- Código fuente del lexer generado.
-- Autómata persistido en JSON.
-- Árbol de expresión en formato DOT.
-- AFD en formato DOT.
-- Tokens reconocidos con lexema, línea y columna.
-- Reportes de errores léxicos.
-
-Los módulos principales son `yalex_parser`, `regex_parser`, `regex_node`,
-`dfa_builder`, `automata_serializer`, `code_gen` y `dot_gen`.
-
-## Proyecto 2: generador sintáctico YAPar
-
-La segunda etapa extiende el lexer con un generador de analizadores sintácticos
-inspirado en Yacc y `ocamlyacc`. Recibe una gramática `.yalp` cuyos terminales
-deben corresponder con los tokens producidos por YALex.
-
-### Entrada
-
-Una especificación YAPar con declaraciones de tokens, tokens ignorados y
-producciones:
-
-```text
-%token id OP_PLUS OP_MUL LPAREN RPAREN
-IGNORE WS
-
-%%
-
-expr:
-    term expr_tail
-;
-
-expr_tail:
-    OP_PLUS term expr_tail
-  |
-;
-```
-
-En una producción:
-
-- Los nombres declarados con `%token` son terminales.
-- Los nombres de producciones son no terminales.
-- `|` separa alternativas.
-- `;` termina una producción.
-- Una alternativa vacía representa epsilon.
-- `IGNORE` permite excluir tokens antes del parsing.
-
-### Algoritmos implementados
-
-#### FIRST y FOLLOW
-
-Se calculan iterativamente hasta alcanzar un punto fijo y se utilizan tanto en
-la tabla predictiva LL(1) como en las reducciones SLR(1).
-
-#### LL(1)
-
-- Eliminación de recursión izquierda directa e indirecta.
-- Factorización izquierda.
-- Construcción de la tabla predictiva.
-- Detección de conflictos.
-- Parser descendente dirigido por tabla.
-
-#### SLR(1)
-
-- Aumento de la gramática.
-- Construcción de la colección canónica LR(0).
-- Operaciones `closure` y `goto`.
-- Construcción de tablas ACTION/GOTO usando FOLLOW.
-- Detección de conflictos shift/reduce y reduce/reduce.
-- Parser LR dirigido por tabla.
-
-#### LALR
-
-- Construcción de estados LR(1) con lookaheads.
-- Agrupación de estados con el mismo núcleo LR(0).
-- Fusión de lookaheads.
-- Construcción de ACTION/GOTO para los estados fusionados.
-- Uso del mismo motor LR empleado por SLR.
-
-### Resultados del análisis
-
-Los parsers producen:
-
-- Aceptación o rechazo de la entrada.
-- Errores sintácticos con ubicación y símbolos esperados.
-- Recuperación básica para continuar después de ciertos errores.
-- Traza paso a paso de la pila, entrada y acción aplicada.
-- Árbol de derivación o CST.
-- Tablas de parsing y conflictos encontrados.
-
-## Pipeline integrado
-
-La aplicación conecta las dos etapas de la siguiente manera:
-
-```text
-Archivo .yal
-    ↓
-Parser YALex → árbol de expresión → AFD minimizado
-    ↓
-Flujo de tokens
-    ↓
-Archivo .yalp → gramática → FIRST/FOLLOW → tabla seleccionada
-    ↓
-Parser LL(1), SLR(1) o LALR
-    ↓
-Resultado + traza + árbol de derivación
-    ↓
-JSON → interfaz Flask
-```
-
-El ejecutable `yapar_cli` funciona como adaptador entre el backend C++ y la
-aplicación Flask. Construye el pipeline solicitado y devuelve un documento JSON
-que el frontend utiliza para crear las visualizaciones.
-
-El repositorio también contiene un avance experimental de análisis semántico
-con CST, AST, tipos, ámbitos y clases. Su explicación técnica está en
-[docs/avance-semantico.md](docs/avance-semantico.md). El nuevo proyecto de
-Compiscript no se implementará sobre esta gramática experimental: tendrá su
-propio pipeline en `compiladores-2`.
-
-## Interfaz gráfica
-
-La interfaz funciona como un IDE educativo y permite:
-
-- Seleccionar archivos `.yal` y `.yalp`.
-- Editar y guardar las especificaciones.
-- Elegir LL(1), SLR(1) o LALR.
-- Construir las tablas correspondientes.
-- Visualizar tokens y expresiones regulares.
-- Consultar producciones, FIRST y FOLLOW.
-- Inspeccionar estados LR(0) o LR(1) fusionados.
-- Visualizar ACTION/GOTO o la tabla predictiva LL(1).
-- Analizar entradas manuales o archivos.
-- Consultar la traza completa del parser.
-- Visualizar el árbol de derivación.
-- Mostrar errores y ubicación en el código.
-
-## Estructura del repositorio
-
-```text
-.
-├── app.py                         # Servidor Flask
-├── frontend/
-│   ├── templates/index.html       # IDE
-│   └── static/
-│       ├── css/style.css
-│       └── js/app.js
-├── backend/
-│   ├── src/                       # Generadores y parsers en C++
-│   ├── examples/                  # Especificaciones y entradas de prueba
-│   ├── tests/                     # Pruebas del avance semántico
-│   └── build_yapar_cli.ps1        # Compilación en Windows
-├── docs/                          # Documentación técnica complementaria
-└── build/                         # Artefactos generados, ignorados por Git
-```
-
-## Compilación y ejecución
-
-### Requisitos
-
+- CMake 3.20 o superior.
 - Compilador compatible con C++17.
-- Python 3.
-- Flask.
-- Opcional: Graphviz para renderizar archivos DOT.
+- Java para ejecutar la herramienta generadora de ANTLR.
+- `curl` en macOS/Linux para la descarga inicial de ANTLR.
+- Python 3 con Flask para servir el IDE.
+
+Flask es únicamente el adaptador web; el análisis sigue ejecutándose en C++.
+Para instalar la dependencia del IDE:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+El script de construcción descarga las distribuciones oficiales de ANTLR
+4.13.2 cuando no están disponibles. El JAR y los artefactos de `build/` se
+ignoran en Git; el código C++ generado sí forma parte del proyecto.
+
+## Compilar y probar
 
 ### macOS o Linux
 
 ```bash
-chmod +x backend/build_yapar_cli.sh
-./backend/build_yapar_cli.sh
-python3 -m flask --app app run --port 5050
+./scripts/build_compiscript.sh
 ```
 
 ### Windows PowerShell
 
 ```powershell
-.\backend\build_yapar_cli.ps1
-python app.py
+.\scripts\build_compiscript.ps1
 ```
 
-Después se puede abrir:
+Ambos flujos:
 
-```text
-http://localhost:5050
-```
+1. descargan el JAR oficial de ANTLR si hace falta;
+2. regeneran lexer, parser y Visitor C++;
+3. descargan y compilan localmente el runtime C++ mediante CMake;
+4. construyen `compiscript_cli` y `compiscript_tests`;
+5. ejecutan la batería automatizada.
 
-### Uso directo del CLI
+## Ejecutar el IDE
+
+Después de compilar:
 
 ```bash
-./yapar_cli \
-  --yal backend/examples/aritmetica.yal \
-  --yalp backend/examples/aritmetica.yalp \
-  --method lalr \
-  --input "x + y * z"
+python3 app.py
 ```
 
-Los métodos disponibles son `ll1`, `slr` y `lalr`.
+Abrir `http://127.0.0.1:5050` permite:
 
-## Ejemplos
+- escribir, cargar, guardar y descargar archivos `.cps`;
+- analizar el programa con `Ctrl/Cmd + Enter` o con el botón principal;
+- navegar los diagnósticos y saltar a su ubicación;
+- explorar el árbol sintáctico de ANTLR;
+- consultar la tabla jerárquica de ámbitos y símbolos;
+- revisar el sistema de tipos activo y los tipos determinados en el programa;
+- inspeccionar en una tabla cada ámbito creado, su padre, propietario y símbolos;
+- revisar tokens y clases;
+- ejecutar la batería de pruebas C++ desde la propia interfaz.
 
-El directorio `backend/examples` contiene:
+## Uso directo del CLI C++
 
-- Una gramática de expresiones aritméticas.
-- Una gramática SLR de asignaciones y expresiones.
-- Un lexer y una gramática para un subconjunto de C++.
-- Entradas C++ válidas y con errores.
-- Una gramática del avance semántico experimental.
+```bash
+./compiscript_cli --file backend/examples/compiscript/bienvenido.cps
+```
 
-Ejemplo válido:
+También recibe código por entrada estándar:
+
+```bash
+./compiscript_cli --stdin program.cps < program.cps
+```
+
+La salida es un único documento JSON. El código de salida es `0` cuando no hay
+errores, `1` cuando el programa contiene diagnósticos y `2` cuando el uso del
+CLI o el archivo de entrada no son válidos.
+
+## Reglas semánticas cubiertas
+
+La siguiente tabla corresponde directamente a las familias exigidas por el
+enunciado. Todas las comprobaciones se realizan en el Visitor C++, no en Flask
+ni en JavaScript.
+
+| Área solicitada | Comportamiento implementado |
+|---|---|
+| Sistema de tipos | Verifica `+`, `-`, `*`, `/` y `%` con números; `&&`, `\|\|` y `!` con booleanos; comparaciones compatibles; tipos de asignación; inicialización de `const`; y elementos de listas. Reconoce `integer`, `float`, `string`, `boolean`, `null`, `void`, clases y listas, con promoción segura `integer → float`. |
+| Manejo de ámbito | Resuelve primero el entorno local y continúa por sus padres hasta el global; reporta nombres no declarados y duplicados; permite sombreado en entornos hijos; crea scopes para programa, función, clase y bloque. |
+| Funciones y procedimientos | Conserva firmas, valida cantidad y tipo posicional de argumentos, comprueba retornos y caminos sin retorno, permite recursión, funciones anidadas y registra capturas de closures. |
+| Control de flujo | Exige condiciones booleanas en `if`, `while`, `do-while`, `for` y `switch`; limita `break`/`continue` a ciclos y `return` a funciones; detecta instrucciones inalcanzables. |
+| Clases y objetos | Comprueba miembros accedidos con `.`, firmas de constructores, uso contextual de `this`, herencia simple, clases base, ciclos y compatibilidad de subtipo. |
+| Listas y estructuras | Infiere un tipo común para los elementos, maneja listas anidadas y vacías tipadas, exige índices `integer` y valida que `foreach` reciba una lista. |
+| Reglas generales | Rechaza objetivos de asignación inválidos, operaciones sin sentido como multiplicar una función y declaraciones duplicadas de variables, funciones o parámetros. |
+
+## Alcance de los archivos `.cps`
+
+El analizador no depende del nombre ni del contenido de los ejemplos incluidos.
+Puede recibir un archivo `.cps` nuevo y desconocido: ANTLR lo tokeniza y analiza
+desde cero, y el Visitor construye nuevas tablas de tipos, símbolos y ámbitos
+para esa entrada.
+
+Esto no significa que acepte cualquier texto o cualquier programa TypeScript.
+El archivo debe respetar la sintaxis definida en
+`backend/compiscript/grammar/Compiscript.g4`, porque Compiscript es solamente un
+subconjunto del lenguaje. Si la sintaxis es válida pero viola una regla
+semántica, el funcionamiento correcto es rechazarlo con diagnósticos; no se
+considera una falla del analizador.
+
+Existe una contradicción en el material oficial: la rúbrica exige que
+`switch` reciba una condición `boolean`, mientras el documento de ejemplos usa
+un selector `integer`. La implementación prioriza la regla explícita de la
+rúbrica. Esta decisión y las demás extensiones de compatibilidad se explican en
+[docs/decisiones-compiscript.md](docs/decisiones-compiscript.md).
+
+## Batería de pruebas
+
+```bash
+ctest --test-dir build/compiscript --output-on-failure
+```
+
+La suite está en
+[backend/tests/compiscript_tests.cpp](backend/tests/compiscript_tests.cpp) y
+contiene 95 escenarios: 41 programas válidos y 54 errores esperados, agrupados
+por cada familia de reglas. No depende de un framework externo: enlaza
+directamente con `compiscript_core`, de modo que prueba el mismo servicio usado
+por el CLI y el IDE.
+
+El botón `Ejecutar batería de pruebas` presenta el reporte completo en la
+interfaz. Para cada caso permite inspeccionar la regla, el código Compiscript
+ejecutado, una explicación sencilla de lo que sucede, el resultado esperado,
+el resultado obtenido y los códigos de diagnóstico emitidos. En los casos
+negativos se aclara que el programa es incorrecto a propósito y por qué la
+prueba se considera aprobada cuando el analizador lo rechaza con el diagnóstico
+correcto; no basta con que la entrada falle por cualquier motivo.
+
+La cobertura incluye explícitamente todos los operadores aritméticos y lógicos
+solicitados, comparaciones, multiplicación inválida de funciones y detección de
+código muerto después de `return`, `break` y `continue`.
+
+## Entregables y evaluación
+
+| Componente evaluado | Evidencia en el proyecto |
+|---|---|
+| IDE — 15 puntos | Editor, carga y descarga de `.cps`, análisis, diagnósticos navegables y paneles de resultados. |
+| Analizador sintáctico y semántico — 60 puntos | Gramática y código generado por ANTLR C++, árbol visual, Visitor semántico y batería C++. |
+| Tabla de símbolos — 25 puntos | Símbolos y scopes enlazados por ID, resolución local/global y vistas jerárquica y tabular por entorno. |
+
+## Decisiones sobre el material oficial
+
+La gramática entregada, la especificación y el enunciado contienen tres puntos
+que no coinciden entre sí. Se resolvieron sin quitar construcciones oficiales:
+
+- se agregó `float`, exigido por la rúbrica aunque no aparece en la gramática;
+- `+` acepta dos `string`, tal como muestran los ejemplos oficiales;
+- los cuerpos de control aceptan bloque o una sentencia, porque el ejemplo de
+  recursión usa `if (...) return ...;` sin llaves.
+
+La rúbrica indica expresamente que la condición de `switch` debe ser booleana;
+el analizador aplica esa regla, aunque otro ejemplo del documento usa un
+selector entero. Las decisiones completas están en
+[docs/decisiones-compiscript.md](docs/decisiones-compiscript.md).
+
+## Estructura relevante
 
 ```text
-x + y * z
+backend/compiscript/
+├── grammar/Compiscript.g4       # Fuente de verdad sintáctica
+├── generated/                   # Lexer, parser y Visitor C++ de ANTLR
+├── include/compiscript/         # API y modelos del frontend
+└── src/                         # Visitor, scopes, JSON, servicio y CLI
+backend/examples/compiscript/    # Programas .cps del IDE
+backend/tests/compiscript_tests.cpp
+frontend/                        # IDE
+scripts/                         # Generación y construcción reproducible
+CMakeLists.txt
+requirements.txt                 # Dependencia del adaptador web
+app.py                           # Solo adaptador web
 ```
 
-Ejemplo sintácticamente inválido:
+## Material e historial
 
-```text
-x + * y
-```
+- [Enunciado](Instrucciones/Generador_de_Analizadores_Semánticos.md)
+- [Especificación](Instrucciones/Especificaciones%20(1).md)
+- [Gramática originalmente entregada](Instrucciones/Compiscript%20(1).g4)
+- [ANTLR](https://www.antlr.org/)
 
-## Pruebas realizadas
+El libro *Compilers: Principles, Techniques, and Tools* se usa como consulta
+local, especialmente para tablas de símbolos encadenadas, síntesis de tipos y
+acceso a datos no locales. No se redistribuye en el repositorio.
 
-Durante la consolidación de esta rama se verificó:
-
-- Compilación completa del CLI con advertencias habilitadas.
-- Aceptación de expresiones aritméticas con LL(1), SLR y LALR.
-- Construcción del árbol para los tres métodos.
-- Aceptación del programa C++ válido con SLR y LALR.
-- Detección de un error sintáctico en el ejemplo C++ inválido.
-- Ejecución de los casos válidos e inválidos del avance semántico.
-
-## Alcance y limitaciones
-
-Este proyecto es un generador educativo, no un reemplazo completo de Lex,
-Yacc, ANTLR o un compilador de C++ real. Entre las limitaciones conocidas:
-
-- La integración web debe fortalecer el reporte de caracteres léxicos no
-  reconocidos.
-- Las posiciones del tokenizador integrado requieren normalización para
-  señalar siempre el inicio del lexema.
-- El operador de diferencia de expresiones regulares necesita completar su
-  semántica de conjuntos.
-- La correspondencia entre tokens YALex y YAPar aún puede validarse de manera
-  más estricta.
-- El subconjunto C++ no pretende cubrir toda la especificación del lenguaje.
-- La recuperación de errores es deliberadamente básica.
-
-Estas limitaciones se documentan para distinguir el alcance comprobado de las
-extensiones futuras.
-
-## Historial del proyecto
-
-- `main`: versión estable general del repositorio.
-- `compiladores-1`: cierre documentado de YALex y YAPar.
-- `compiladores-2`: desarrollo de ANTLR, Compiscript y análisis semántico.
-- `compiladores-1-final`: etiqueta del cierre de Compiladores 1.
-
-La rama de Compiladores 1 debe permanecer disponible para consultar el trabajo
-original sin mezclarlo con la implementación posterior de Compiscript.
-
-## Autores
-
-Proyecto desarrollado como trabajo grupal del curso. Las contribuciones se
-mantienen identificadas mediante el historial individual de commits y el
-archivo [CONTRIBUTORS.md](CONTRIBUTORS.md).
+El trabajo de Compiladores 1 permanece intacto en la rama `compiladores-1` y
+en la etiqueta `compiladores-1-final`. Sus módulos YALex/YAPar siguen presentes
+en esta rama como antecedente histórico, pero no forman parte del pipeline de
+Compiscript ni del IDE actual.

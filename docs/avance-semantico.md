@@ -1,8 +1,15 @@
 # Avance semántico: tipos, ámbitos y clases
 
-## Alcance implementado
+> **Documento histórico.** Este archivo conserva el alcance de una entrega
+> parcial anterior basada en YAPar. No describe el estado actual del proyecto
+> Compiscript con ANTLR. Para conocer la implementación completa deben
+> consultarse `README.md` y `docs/arquitectura-compiscript.md`.
 
-Este avance agrega una fase semántica pequeña y demostrable sobre el pipeline existente. No pretende ser todavía un comprobador completo del lenguaje.
+## Alcance implementado en esa etapa
+
+En el momento de esa entrega, este avance agregaba una fase semántica pequeña y
+demostrable sobre el pipeline de YAPar. Todavía no era el comprobador completo
+que posteriormente se implementó para Compiscript con ANTLR.
 
 Incluye:
 
@@ -16,7 +23,7 @@ Incluye:
 - Errores por declaración duplicada y tipo desconocido.
 - Salida JSON determinista para SLR y LALR.
 
-No incluye:
+En esa etapa todavía no se incluía:
 
 - Reglas de tipos para expresiones y asignaciones.
 - Resolución de usos de identificadores.
@@ -112,7 +119,10 @@ Tipos: int, float, double, char, bool, string, void, Cuenta,
 | `SEM003` | Tipo utilizado pero no declarado |
 | `SEM010` | Clase duplicada |
 
-El ocultamiento en un ámbito hijo no se reporta como duplicado. Aún no se resuelven usos de nombres, por lo que este avance no emite “variable no declarada”.
+El ocultamiento en un ámbito hijo no se reportaba como duplicado. En esa etapa
+aún no se resolvían usos de nombres, por lo que el avance no emitía “variable
+no declarada”. Estas capacidades sí existen en la implementación actual de
+Compiscript.
 
 ## Contrato JSON
 
