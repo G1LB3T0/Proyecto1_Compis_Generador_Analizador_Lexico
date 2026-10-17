@@ -1,4 +1,4 @@
-# Arquitectura del frontend de Compiscript
+# Arquitectura del compilador de Compiscript
 
 ## Separación de responsabilidades
 
@@ -13,13 +13,39 @@ distintas del compilador.
 3. `tree_serializer` transforma el árbol en una estructura JSON recursiva con
    regla, token, texto, línea y columna.
 4. `SemanticAnalyzer`, derivado de `CompiscriptBaseVisitor`, sintetiza el tipo
-   de cada expresión y aplica reglas contextuales.
-5. El modelo semántico se serializa con relaciones por ID estables.
+   de cada expresión, aplica reglas contextuales y produce asociaciones
+   efímeras nodo → símbolo/tipo/ámbito.
+5. Si el resultado semántico es válido, `TacGenerator` realiza una segunda
+   visita y emite cuádruplos, etiquetas, temporales y llamadas.
+6. `TacGenerator` complementa la tabla con tamaños, offsets, almacenamiento y
+   etiquetas, y calcula los registros de activación.
+7. Los modelos semántico y TAC se serializan con relaciones por ID estables.
 
 El análisis semántico no se ejecuta cuando existen errores léxicos o
 sintácticos. Esto evita diagnósticos en cascada sobre un árbol recuperado e
 incompleto, pero el árbol y los tokens se conservan para ayudar a corregir la
 entrada.
+
+De forma equivalente, el TAC no se ejecuta cuando existen errores de cualquiera
+de las fases anteriores. `TacResult.skipped` y `reason` explican esta decisión al
+CLI y al IDE.
+
+## Separación entre semántica y TAC
+
+El código intermedio no se genera dentro de `semantic_analyzer.cpp`. Ambas fases
+usan Visitors porque recorren la misma gramática, pero tienen contratos
+distintos:
+
+- `SemanticAnalyzer` produce `SemanticResult` y `SemanticBindings`;
+- `TacGenerator` consume ambos, actualiza el layout de símbolos y produce
+  `TacResult`;
+- `service.cpp` controla el orden y evita ejecutar una fase cuando su
+  precondición falla.
+
+`SemanticBindings` usa punteros al parse tree únicamente durante
+`analyzeSource`. No se serializa ni escapa del tiempo de vida del parser. Esto
+permite distinguir correctamente símbolos sombreados sin guardar punteros
+inválidos en el resultado público.
 
 ## Tabla de símbolos
 
@@ -84,8 +110,39 @@ de su scope de función, se guardan dos relaciones:
 - `captured_by` en el símbolo capturado.
 
 Esto representa estáticamente el entorno de definición que una fase posterior
-necesitaría convertir en un enlace de acceso o closure en tiempo de ejecución,
-como se discute en la sección 7.3 del libro del dragón.
+convierte en un enlace de acceso o closure en tiempo de ejecución. El TAC emite
+`capture` en la función anidada, `static_link` en la llamada y usa direcciones
+`env[...]` para los símbolos capturados, como se discute en la sección 7.3 del
+libro del dragón.
+
+## Código intermedio y temporales
+
+Las instrucciones se guardan como cuádruplos estructurados, no como cadenas
+sueltas. Una serialización textual facilita la evaluación humana, mientras que
+`op`, `arg1`, `arg2` y `result` permiten pruebas precisas y una futura fase de
+código objeto.
+
+Cada rutina tiene su propio pool de temporales. Los operandos se liberan después
+de emitir la instrucción que los consume; el nombre vuelve a una lista libre y
+puede utilizarse en otra expresión. El máximo de temporales simultáneamente
+vivos determina los bytes de temporales del frame.
+
+El diseño completo del lenguaje, catálogo de instrucciones, ejemplos y
+supuestos está en [codigo-intermedio-tac.md](codigo-intermedio-tac.md).
+
+## Layout y registros de activación
+
+La tabla de símbolos se complementa después del análisis semántico:
+
+- globales: offset positivo en el segmento global abstracto;
+- parámetros: offsets desde `FP + 32`;
+- locales: offsets negativos respecto de `FP`;
+- campos: offsets dentro del objeto, después de los campos heredados;
+- funciones y clases: etiquetas simbólicas.
+
+Cada `ActivationRecord` reserva enlaces de control y acceso, dirección y valor
+de retorno, parámetros, locales y temporales. El modelo conserva además la
+profundidad léxica y las capturas requeridas por closures.
 
 ## Clases
 
@@ -111,10 +168,13 @@ sentencia posterior en la misma secuencia recibe `SEM_FLOW_DEAD_CODE`.
 La salida contiene:
 
 - `syntax_ok`, `semantic_ok` y `ok`;
+- `tac_ok`;
 - `tokens`;
 - `tree`;
 - `syntax_diagnostics` y `semantic.diagnostics`;
 - `semantic.scopes`, `semantic.symbols` y `semantic.classes`;
+- `tac.instructions`, `tac.text` y `tac.activation_records`;
+- métricas de creación, reutilización y máximo simultáneo de temporales;
 - `summary` con conteos para el IDE.
 
 Todos los diagnósticos poseen código estable, categoría, severidad, mensaje,

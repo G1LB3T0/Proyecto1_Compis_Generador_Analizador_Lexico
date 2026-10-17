@@ -1,18 +1,20 @@
-# Compiscript — Analizador sintáctico y semántico
+# Compiscript — Generador de código intermedio TAC
 
-Proyecto 1 de Compiladores 2 desarrollado por:
+Proyecto 2 de Compiladores 2 desarrollado por:
 
 - Joel Jaquez — #23369
 - Luis Gonzalez — #23353
 
-Proyecto de **Compiladores 2** que implementa el frontend de Compiscript con
-ANTLR 4.13.2 y C++17. El sistema reconoce archivos `.cps`, construye el árbol
-sintáctico, ejecuta un Visitor semántico, reporta diagnósticos con ubicación y
-expone la tabla de símbolos completa por ámbito en un IDE web.
+Proyecto de **Compiladores 2** que implementa el frontend y la generación de
+código intermedio de Compiscript con ANTLR 4.13.2 y C++17. El sistema reconoce
+archivos `.cps`, construye el árbol sintáctico, ejecuta el análisis semántico y,
+si el programa es válido, genera código de tres direcciones (TAC), temporales,
+layout de símbolos y registros de activación en un IDE web.
 
 El analizador es C++. Python solo se conserva como el adaptador Flask que sirve
 el IDE y comunica el navegador con el ejecutable `compiscript_cli`; ninguna
-regla léxica, sintáctica o semántica está implementada en Python.
+regla léxica, sintáctica, semántica o de generación TAC está implementada en
+Python.
 
 ## Estado del proyecto
 
@@ -24,7 +26,12 @@ regla léxica, sintáctica o semántica está implementada en Python.
 - Validación de tipos, ámbitos, funciones, closures, flujo, clases, herencia,
   constructores y listas.
 - Diagnósticos léxicos, sintácticos y semánticos con línea y columna.
-- Batería C++ de escenarios válidos e inválidos ejecutable desde CTest o el IDE.
+- TAC estructurado como cuádruplos para expresiones, control de flujo,
+  funciones, closures, clases y listas.
+- Asignación y reciclaje de temporales con métricas observables.
+- Tabla de símbolos extendida y registros de activación por función o método.
+- Batería C++ de escenarios válidos e inválidos de semántica y TAC, ejecutable
+  desde CTest o el IDE.
 - Ejemplos `.cps` para demostración.
 
 ## Arquitectura
@@ -50,15 +57,27 @@ SemanticAnalyzer (Visitor C++)
     ├── clases, herencia, miembros y constructores
     └── listas e índices
     │
+    │ resultado válido + asociaciones semánticas
     ▼
-JSON: diagnósticos + scopes + símbolos + clases
+TacGenerator (segundo Visitor C++)
+    │
+    ├── cuádruplos y representación textual TAC
+    ├── etiquetas y saltos
+    ├── llamadas, parámetros y closures
+    ├── temporales con reciclaje
+    └── offsets y registros de activación
+    │
+    ▼
+JSON: diagnósticos + símbolos + TAC + frames
     │
     ▼
 Flask (adaptador) ► IDE web
 ```
 
 El diseño detallado se encuentra en
-[docs/arquitectura-compiscript.md](docs/arquitectura-compiscript.md).
+[docs/arquitectura-compiscript.md](docs/arquitectura-compiscript.md). La
+especificación completa del lenguaje intermedio está en
+[docs/codigo-intermedio-tac.md](docs/codigo-intermedio-tac.md).
 
 ## Requisitos
 
@@ -114,6 +133,8 @@ Abrir `http://127.0.0.1:5050` permite:
 - escribir, cargar, guardar y descargar archivos `.cps`;
 - analizar el programa con `Ctrl/Cmd + Enter` o con el botón principal;
 - navegar los diagnósticos y saltar a su ubicación;
+- inspeccionar el TAC textual y cada cuádruplo emitido;
+- consultar métricas de temporales y registros de activación;
 - explorar el árbol sintáctico de ANTLR;
 - consultar la tabla jerárquica de ámbitos y símbolos;
 - revisar el sistema de tipos activo y los tipos determinados en el programa;
@@ -133,9 +154,29 @@ También recibe código por entrada estándar:
 ./compiscript_cli --stdin program.cps < program.cps
 ```
 
-La salida es un único documento JSON. El código de salida es `0` cuando no hay
-errores, `1` cuando el programa contiene diagnósticos y `2` cuando el uso del
-CLI o el archivo de entrada no son válidos.
+La salida es un único documento JSON con `semantic` y `tac`. El código de salida
+es `0` cuando todas las fases terminan correctamente, `1` cuando el programa
+contiene diagnósticos y `2` cuando el uso del CLI o el archivo no son válidos.
+
+## Generación de código intermedio
+
+El TAC se ejecuta como segunda pasada sobre el árbol únicamente si el análisis
+semántico fue exitoso. La implementación cubre:
+
+- operaciones aritméticas, lógicas, comparaciones, declaraciones y
+  asignaciones;
+- `if/else`, `while`, `do-while`, `for`, `foreach`, `switch`, `break` y
+  `continue` mediante etiquetas y saltos;
+- funciones, procedimientos, parámetros, retornos, recursividad, funciones
+  anidadas y enlaces de acceso para closures;
+- creación de objetos, constructores, campos, métodos y `%this`;
+- creación, lectura, escritura y recorrido de listas;
+- asignación y reciclaje de temporales;
+- offsets, tamaños, etiquetas y registros de activación.
+
+Los cuádruplos conservan `op`, `arg1`, `arg2`, `result` y ubicación fuente. La
+documentación detallada y los supuestos de traducción están en
+[docs/codigo-intermedio-tac.md](docs/codigo-intermedio-tac.md).
 
 ## Reglas semánticas cubiertas
 
@@ -181,8 +222,8 @@ ctest --test-dir build/compiscript --output-on-failure
 
 La suite está en
 [backend/tests/compiscript_tests.cpp](backend/tests/compiscript_tests.cpp) y
-contiene 95 escenarios: 41 programas válidos y 54 errores esperados, agrupados
-por cada familia de reglas. No depende de un framework externo: enlaza
+contiene 107 escenarios: 51 programas válidos y 56 errores u omisiones
+esperadas, agrupados por cada familia de reglas. No depende de un framework externo: enlaza
 directamente con `compiscript_core`, de modo que prueba el mismo servicio usado
 por el CLI y el IDE.
 
@@ -194,17 +235,17 @@ negativos se aclara que el programa es incorrecto a propósito y por qué la
 prueba se considera aprobada cuando el analizador lo rechaza con el diagnóstico
 correcto; no basta con que la entrada falle por cualquier motivo.
 
-La cobertura incluye explícitamente todos los operadores aritméticos y lógicos
-solicitados, comparaciones, multiplicación inválida de funciones y detección de
-código muerto después de `return`, `break` y `continue`.
+La cobertura TAC incluye precedencia, cortocircuito lógico, ciclos, `switch`,
+recursividad, closures, clases, listas, temporales, offsets, frames y la omisión
+segura del generador ante errores sintácticos o semánticos.
 
 ## Entregables y evaluación
 
 | Componente evaluado | Evidencia en el proyecto |
 |---|---|
-| IDE — 15 puntos | Editor, carga y descarga de `.cps`, análisis, diagnósticos navegables y paneles de resultados. |
-| Analizador sintáctico y semántico — 60 puntos | Gramática y código generado por ANTLR C++, árbol visual, Visitor semántico y batería C++. |
-| Tabla de símbolos — 25 puntos | Símbolos y scopes enlazados por ID, resolución local/global y vistas jerárquica y tabular por entorno. |
+| Diseño de CI — 25 puntos | Cuádruplos documentados, catálogo de instrucciones, ejemplos y supuestos de traducción. |
+| Generación de TAC — 65 puntos | Segundo Visitor C++, temporales, control de flujo, funciones, clases, listas y batería automatizada. |
+| Tabla de símbolos — 10 puntos | Tamaños, offsets, etiquetas, profundidad léxica y registros de activación. |
 
 ## Decisiones sobre el material oficial
 
@@ -228,7 +269,7 @@ backend/compiscript/
 ├── grammar/Compiscript.g4       # Fuente de verdad sintáctica
 ├── generated/                   # Lexer, parser y Visitor C++ de ANTLR
 ├── include/compiscript/         # API y modelos del frontend
-└── src/                         # Visitor, scopes, JSON, servicio y CLI
+└── src/                         # Visitors semántico/TAC, JSON, servicio y CLI
 backend/examples/compiscript/    # Programas .cps del IDE
 backend/tests/compiscript_tests.cpp
 frontend/                        # IDE
@@ -240,7 +281,8 @@ app.py                           # Solo adaptador web
 
 ## Material e historial
 
-- [Enunciado](Instrucciones/Generador_de_Analizadores_Semánticos.md)
+- [Enunciado del Proyecto 2](Instrucciones/Proyecto_2__Compiladores.md)
+- [Enunciado semántico previo](Instrucciones/Generador_de_Analizadores_Semánticos.md)
 - [Especificación](Instrucciones/Especificaciones%20(1).md)
 - [Gramática originalmente entregada](Instrucciones/Compiscript%20(1).g4)
 - [ANTLR](https://www.antlr.org/)
