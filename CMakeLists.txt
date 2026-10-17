@@ -1,4 +1,4 @@
-# Configura ANTLR C++, la biblioteca del analizador, el CLI y sus pruebas.
+# Configura ANTLR C++, el compilador semántico/TAC, el CLI y sus pruebas.
 cmake_minimum_required(VERSION 3.20)
 project(compiscript_analyzer LANGUAGES CXX)
 
@@ -35,6 +35,7 @@ set(COMPISCRIPT_CORE
   backend/compiscript/src/semantic_analyzer.cpp
   backend/compiscript/src/service.cpp
   backend/compiscript/src/symbol_table.cpp
+  backend/compiscript/src/tac_generator.cpp
   backend/compiscript/src/token_classifier.cpp
   backend/compiscript/src/tree_serializer.cpp
   ${COMPISCRIPT_GENERATED}
