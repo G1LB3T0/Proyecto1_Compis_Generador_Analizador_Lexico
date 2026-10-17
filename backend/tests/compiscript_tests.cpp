@@ -1,4 +1,4 @@
-// Batería de integración: ejecuta casos válidos y fallidos por regla semántica.
+// Batería de integración: valida semántica, TAC y omisión segura ante errores.
 #include "compiscript/json.h"
 #include "compiscript/service.h"
 
@@ -40,6 +40,8 @@ std::vector<std::string> diagnosticCodes(const Result &result) {
     values.push_back(diagnostic.code);
   for (const auto &diagnostic : result.semantic.diagnostics)
     values.push_back(diagnostic.code);
+  for (const auto &diagnostic : result.tac.diagnostics)
+    values.push_back(diagnostic.code);
   return values;
 }
 
@@ -50,6 +52,22 @@ bool hasCode(const Result &result, const std::string &code) {
       return true;
   }
   return false;
+}
+
+bool hasTacOp(const Result &result, const std::string &op) {
+  for (const auto &instruction : result.tac.instructions) {
+    if (instruction.op == op)
+      return true;
+  }
+  return false;
+}
+
+size_t firstTacOp(const Result &result, const std::string &op) {
+  for (size_t index = 0; index < result.tac.instructions.size(); ++index) {
+    if (result.tac.instructions[index].op == op)
+      return index;
+  }
+  return result.tac.instructions.size();
 }
 
 std::string join(const std::vector<std::string> &values,
@@ -75,10 +93,15 @@ std::string actualResult(const Result &result) {
                        std::to_string(diagnostic.line) + "): " +
                        diagnostic.message);
   }
+  for (const auto &diagnostic : result.tac.diagnostics) {
+    messages.push_back(diagnostic.code + " (línea " +
+                       std::to_string(diagnostic.line) + "): " +
+                       diagnostic.message);
+  }
   if (!messages.empty())
     return join(messages, " | ");
   if (result.ok)
-    return "Análisis léxico, sintáctico y semántico completado sin errores.";
+    return "Análisis completo y generación TAC terminados sin errores.";
   if (result.semantic.skipped)
     return "El análisis semántico se omitió porque la entrada no es sintácticamente válida.";
   return "El análisis finalizó sin diagnósticos detallados.";
@@ -518,6 +541,145 @@ std::vector<TestCase> buildTests() {
                           "function f(x: integer, x: integer) { return; }",
                           "SEM_SCOPE_DUPLICATE",
                           "Los parámetros comparten el ámbito de la función."));
+
+  tests.push_back(custom(
+      "Generación de código intermedio", "Expresiones y precedencia",
+      "Multiplicación antes de suma", "let x = 2 + 3 * 4;", "Caso válido",
+      "el TAC debe emitir mul antes de add y terminar sin diagnósticos.",
+      [](const Result &result) {
+        return result.ok && result.tac.ok && hasTacOp(result, "assign") &&
+               firstTacOp(result, "mul") < firstTacOp(result, "add");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Lógica de cortocircuito",
+      "AND y OR usan saltos",
+      "let x: boolean = (true && false) || true;", "Caso válido",
+      "las expresiones lógicas deben usar etiquetas y saltos condicionales.",
+      [](const Result &result) {
+        return result.ok && hasTacOp(result, "if_true") &&
+               hasTacOp(result, "if_false") && hasTacOp(result, "label");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Control de flujo",
+      "For con continue y break",
+      "for (let i: integer = 0; i < 4; i = i + 1) { if (i == 1) { continue; } if (i == 3) { break; } print(i); }",
+      "Caso válido",
+      "for, continue y break deben traducirse a etiquetas y saltos definidos.",
+      [](const Result &result) {
+        size_t gotos = 0, labels = 0;
+        for (const auto &instruction : result.tac.instructions) {
+          gotos += instruction.op == "goto" ? 1 : 0;
+          labels += instruction.op == "label" ? 1 : 0;
+        }
+        return result.ok && gotos >= 3 && labels >= 5;
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Switch",
+      "Switch booleano genera comparaciones",
+      "switch (true) { case true: print(1); case false: print(0); default: print(2); }",
+      "Caso válido",
+      "cada case debe compararse con el selector y saltar al final sin caída implícita.",
+      [](const Result &result) {
+        size_t comparisons = 0;
+        for (const auto &instruction : result.tac.instructions)
+          comparisons += instruction.op == "eq" ? 1 : 0;
+        return result.ok && comparisons == 2 && hasTacOp(result, "if_false");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Funciones y recursividad",
+      "Factorial produce llamada y retorno",
+      "function factorial(n: integer): integer { if (n <= 1) return 1; return n * factorial(n - 1); } let x = factorial(5);",
+      "Caso válido",
+      "la definición debe incluir parámetros, llamadas, retorno y registro de activación.",
+      [](const Result &result) {
+        return result.ok && hasTacOp(result, "begin_func") &&
+               hasTacOp(result, "param_in") && hasTacOp(result, "call") &&
+               hasTacOp(result, "return") &&
+               !result.tac.activation_records.empty();
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Closures",
+      "Función anidada conserva enlace de acceso",
+      "function exterior(base: integer): integer { function sumar(valor: integer): integer { return base + valor; } return sumar(2); } let total = exterior(5);",
+      "Caso válido",
+      "la captura debe aparecer en el frame y la llamada debe preparar un static link.",
+      [](const Result &result) {
+        bool captured_frame = false;
+        for (const auto &frame : result.tac.activation_records)
+          captured_frame = captured_frame || !frame.captured_symbols.empty();
+        return result.ok && captured_frame && hasTacOp(result, "capture") &&
+               hasTacOp(result, "static_link");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Clases y objetos",
+      "Constructor, campo y método",
+      "class A { let x: integer; function constructor(v: integer) { this.x = v; } function valor(): integer { return this.x; } } let a = new A(7); print(a.valor());",
+      "Caso válido",
+      "new, constructor, lectura y escritura de campos y llamada de método deben tener TAC.",
+      [](const Result &result) {
+        return result.ok && hasTacOp(result, "new_object") &&
+               hasTacOp(result, "load_field") &&
+               hasTacOp(result, "store_field") &&
+               hasTacOp(result, "call_method");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Listas e índices",
+      "Creación, lectura y escritura de lista",
+      "let datos = [1, 2, 3]; datos[1] = datos[0] + 4; print(datos[1]);",
+      "Caso válido",
+      "el TAC debe reservar la lista y representar accesos indexados de lectura y escritura.",
+      [](const Result &result) {
+        return result.ok && hasTacOp(result, "new_list") &&
+               hasTacOp(result, "load_index") &&
+               hasTacOp(result, "store_index");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Reciclaje de temporales",
+      "Temporales consumidos vuelven al pool",
+      "let a = 1 + 2; let b = 3 + 4; let c = 5 + 6; print(a + b + c);",
+      "Caso válido",
+      "el generador debe reutilizar por lo menos un temporal ya consumido.",
+      [](const Result &result) {
+        return result.ok && result.tac.temporaries_created > 0 &&
+               result.tac.temporaries_reused > 0;
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Tabla de símbolos extendida",
+      "Offsets y frame de función",
+      "let global: integer = 1; function sumar(a: integer, b: integer): integer { let local = a + b; return local; } let total = sumar(global, 2);",
+      "Caso válido",
+      "símbolos deben tener almacenamiento y offsets, y la función un frame con parámetros y locales.",
+      [](const Result &result) {
+        bool layout = true;
+        for (const auto &item : result.semantic.symbols) {
+          if (item.kind == "variable" || item.kind == "parameter" ||
+              item.kind == "constant")
+            layout = layout && !item.storage.empty() && item.offset != -1;
+        }
+        bool frame = false;
+        for (const auto &item : result.tac.activation_records)
+          frame = frame || (item.parameter_bytes > 0 && item.local_bytes > 0 &&
+                            item.frame_size >= 32);
+        return result.ok && layout && frame;
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Omisión por error semántico",
+      "No genera TAC para tipos inválidos", "let x: integer = true;",
+      "Error esperado",
+      "la semántica debe rechazar el programa y el TAC debe quedar marcado como omitido.",
+      [](const Result &result) {
+        return !result.semantic_ok && result.tac.skipped &&
+               result.tac.instructions.empty() &&
+               hasCode(result, "SEM_ASSIGN_TYPE");
+      }));
+  tests.push_back(custom(
+      "Generación de código intermedio", "Omisión por error sintáctico",
+      "No genera TAC para árbol inválido", "let x = ;", "Error esperado",
+      "ANTLR debe rechazar la entrada antes de semántica y TAC.",
+      [](const Result &result) {
+        return !result.syntax_ok && result.semantic.skipped &&
+               result.tac.skipped && result.tac.instructions.empty();
+      }));
 
   return tests;
 }
