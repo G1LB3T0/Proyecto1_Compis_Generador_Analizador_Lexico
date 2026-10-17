@@ -19,10 +19,20 @@ struct ExprResult {
   bool assignable = false;
 };
 
+// Asociaciones efímeras entre nodos del parse tree y el modelo semántico.
+// Solo viven mientras `analyzeSource` conserva el árbol de ANTLR y permiten que
+// fases posteriores no repitan la resolución de nombres ni de ámbitos.
+struct SemanticBindings {
+  std::unordered_map<const void *, int> symbols;
+  std::unordered_map<const void *, int> scopes;
+  std::unordered_map<const void *, ExprResult> expressions;
+};
+
 class SemanticAnalyzer final : public CompiscriptBaseVisitor {
 public:
   SemanticAnalyzer();
   SemanticResult analyze(CompiscriptParser::ProgramContext *program);
+  const SemanticBindings &bindings() const { return bindings_; }
 
   std::any visitProgram(CompiscriptParser::ProgramContext *ctx) override;
   std::any visitBlock(CompiscriptParser::BlockContext *ctx) override;
@@ -109,6 +119,7 @@ private:
   int loop_depth_ = 0;
   std::unordered_map<const void *, int> declaration_symbols_;
   std::set<const void *> visited_declarations_;
+  SemanticBindings bindings_;
 
   // Operaciones centrales de ámbitos, símbolos, diagnósticos y tipos.
   int newScope(const std::string &name, const std::string &kind, int parent_id,
@@ -134,6 +145,7 @@ private:
   Type typeOf(CompiscriptParser::TypeContext *ctx) const;
   ExprResult expressionResult(const std::any &value) const;
   ExprResult visitExpressionNode(antlr4::tree::ParseTree *node);
+  void bindSymbol(const void *node, int symbol_id);
   std::vector<ExprResult> arguments(CompiscriptParser::ArgumentsContext *ctx);
   std::vector<std::string>
   operators(antlr4::ParserRuleContext *ctx,

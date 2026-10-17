@@ -28,6 +28,7 @@ SemanticAnalyzer::SemanticAnalyzer() { newScope("global", "global", -1, 1); }
 
 SemanticResult
 SemanticAnalyzer::analyze(CompiscriptParser::ProgramContext *program) {
+  bindings_.scopes[program] = 0;
   visit(program);
   SemanticResult result;
   result.ok = diagnostics_.empty();
@@ -216,7 +217,16 @@ ExprResult SemanticAnalyzer::expressionResult(const std::any &value) const {
 
 ExprResult
 SemanticAnalyzer::visitExpressionNode(antlr4::tree::ParseTree *node) {
-  return node ? expressionResult(visit(node)) : ExprResult{};
+  if (!node)
+    return ExprResult{};
+  const ExprResult result = expressionResult(visit(node));
+  bindings_.expressions[node] = result;
+  return result;
+}
+
+void SemanticAnalyzer::bindSymbol(const void *node, int symbol_id) {
+  if (node && symbol_id >= 0)
+    bindings_.symbols[node] = symbol_id;
 }
 
 std::vector<std::string>
@@ -245,6 +255,7 @@ int SemanticAnalyzer::predeclareClass(
       identifiers.size() > 1 ? identifiers[1]->getText() : "";
   const int symbol_id = declareSymbol(name, "class", Type{name}, ctx, false);
   declaration_symbols_[ctx] = symbol_id;
+  bindSymbol(ctx, symbol_id);
   if (symbol_id >= 0) {
     Symbol &symbol = symbols_[symbol_id];
     symbol.base_class = base;
@@ -269,6 +280,7 @@ int SemanticAnalyzer::predeclareFunction(
       declareSymbol(ctx->Identifier()->getText(), kind, TYPE_FUNCTION, ctx,
                     false, true, scope_id);
   declaration_symbols_[ctx] = symbol_id;
+  bindSymbol(ctx, symbol_id);
   if (symbol_id < 0)
     return -1;
   Symbol &symbol = symbols_[symbol_id];
@@ -323,6 +335,7 @@ void SemanticAnalyzer::prepareClassMembers(
         declareSymbol(name, "field", type, declaration_ctx, variable != nullptr,
                       constant != nullptr, info.scope_id);
     declaration_symbols_[declaration_ctx] = id;
+    bindSymbol(declaration_ctx, id);
     if (id >= 0)
       info.fields.emplace(name, id);
   }
@@ -401,6 +414,7 @@ std::any SemanticAnalyzer::visitBlock(CompiscriptParser::BlockContext *ctx) {
   const int parent = current_scope_;
   current_scope_ = newScope("bloque@" + std::to_string(lineOf(ctx)), "block",
                             parent, lineOf(ctx));
+  bindings_.scopes[ctx] = current_scope_;
   analyzeStatements(ctx->statement());
   current_scope_ = parent;
   return ExprResult{};
@@ -450,7 +464,9 @@ std::any SemanticAnalyzer::visitVariableDeclaration(
   } else {
     symbol_id = declareSymbol(name, "variable", final_type, ctx, true,
                               ctx->initializer() != nullptr);
+    declaration_symbols_[ctx] = symbol_id;
   }
+  bindSymbol(ctx, symbol_id);
   return ExprResult{};
 }
 
@@ -481,8 +497,13 @@ std::any SemanticAnalyzer::visitConstantDeclaration(
     if (predeclared->second >= 0)
       symbols_[predeclared->second].type = final_type;
   } else {
-    declareSymbol(name, "constant", final_type, ctx, false, true);
+    const int symbol_id =
+        declareSymbol(name, "constant", final_type, ctx, false, true);
+    declaration_symbols_[ctx] = symbol_id;
   }
+  auto declared_symbol = declaration_symbols_.find(ctx);
+  if (declared_symbol != declaration_symbols_.end())
+    bindSymbol(ctx, declared_symbol->second);
   return ExprResult{};
 }
 
@@ -511,6 +532,7 @@ std::any SemanticAnalyzer::visitFunctionDeclaration(
   const int parent = current_scope_;
   current_scope_ = newScope("función " + function_name, "function", parent,
                             lineOf(ctx), symbol_id);
+  bindings_.scopes[ctx] = current_scope_;
   symbols_[symbol_id].function_scope_id = current_scope_;
   function_stack_.push_back(symbol_id);
 
@@ -525,7 +547,10 @@ std::any SemanticAnalyzer::visitFunctionDeclaration(
       error("SEM_TYPE_VOID", "tipo", "Un parámetro no puede ser void.",
             parameter);
     }
-    declareSymbol(parameter_names[index], "parameter", type, parameter);
+    const int parameter_id =
+        declareSymbol(parameter_names[index], "parameter", type, parameter);
+    declaration_symbols_[parameter] = parameter_id;
+    bindSymbol(parameter, parameter_id);
   }
   visit(ctx->block());
   if (return_type != TYPE_VOID) {
@@ -558,6 +583,7 @@ std::any SemanticAnalyzer::visitClassDeclaration(
   prepareClassMembers(ctx);
   const int parent = current_scope_;
   current_scope_ = found->second.scope_id;
+  bindings_.scopes[ctx] = current_scope_;
   class_stack_.push_back(name);
   for (auto *member : ctx->classMember())
     visit(member);
@@ -660,6 +686,7 @@ std::any SemanticAnalyzer::visitForStatement(
   const int parent = current_scope_;
   current_scope_ = newScope("for@" + std::to_string(lineOf(ctx)), "block",
                             parent, lineOf(ctx));
+  bindings_.scopes[ctx] = current_scope_;
   if (ctx->variableDeclaration())
     visit(ctx->variableDeclaration());
   if (ctx->expressionStatement())
@@ -685,12 +712,16 @@ std::any SemanticAnalyzer::visitForeachStatement(
   const int parent = current_scope_;
   current_scope_ = newScope("foreach@" + std::to_string(lineOf(ctx)), "block",
                             parent, lineOf(ctx));
+  bindings_.scopes[ctx] = current_scope_;
   if (!collection.type.isList() && !collection.type.isUnknown()) {
     error("SEM_LIST_FOREACH", "lista", "foreach requiere una lista.",
           ctx->expression());
   }
-  declareSymbol(ctx->Identifier()->getText(), "variable",
-                collection.type.element(), ctx);
+  const int iteration_symbol =
+      declareSymbol(ctx->Identifier()->getText(), "variable",
+                    collection.type.element(), ctx);
+  declaration_symbols_[ctx] = iteration_symbol;
+  bindSymbol(ctx, iteration_symbol);
   ++loop_depth_;
   visit(ctx->controlBody());
   --loop_depth_;
@@ -744,7 +775,12 @@ std::any SemanticAnalyzer::visitTryCatchStatement(
   const int parent = current_scope_;
   current_scope_ = newScope("catch@" + std::to_string(lineOf(ctx)), "block",
                             parent, lineOf(ctx));
-  declareSymbol(ctx->Identifier()->getText(), "variable", TYPE_UNKNOWN, ctx);
+  bindings_.scopes[ctx] = current_scope_;
+  bindings_.scopes[ctx->block(1)] = current_scope_;
+  const int catch_symbol =
+      declareSymbol(ctx->Identifier()->getText(), "variable", TYPE_UNKNOWN, ctx);
+  declaration_symbols_[ctx] = catch_symbol;
+  bindSymbol(ctx, catch_symbol);
   analyzeStatements(ctx->block(1)->statement());
   current_scope_ = parent;
   return ExprResult{};
@@ -1011,6 +1047,7 @@ std::any SemanticAnalyzer::visitIdentifierExpr(
   const int symbol_id = resolveSymbol(ctx->Identifier()->getText(), ctx);
   if (symbol_id < 0)
     return ExprResult{TYPE_ERROR};
+  bindSymbol(ctx, symbol_id);
   const Symbol &symbol = symbols_[symbol_id];
   if (symbol.kind == "function" || symbol.kind == "method") {
     return ExprResult{TYPE_FUNCTION, symbol_id, false};
@@ -1102,9 +1139,11 @@ ExprResult SemanticAnalyzer::applyProperty(const ExprResult &owner,
     return {TYPE_ERROR};
   }
   const Symbol &symbol = symbols_[symbol_id];
+  bindSymbol(ctx, symbol_id);
   if (symbol.kind == "method")
-    return {TYPE_FUNCTION, symbol_id, false};
-  return {symbol.type, symbol_id, true};
+    return bindings_.expressions[ctx] =
+               ExprResult{TYPE_FUNCTION, symbol_id, false};
+  return bindings_.expressions[ctx] = ExprResult{symbol.type, symbol_id, true};
 }
 
 ExprResult
@@ -1120,7 +1159,9 @@ SemanticAnalyzer::applyCall(const ExprResult &callee,
     return {TYPE_ERROR};
   }
   validateCallArguments(callee.symbol_id, values, ctx);
-  return {symbols_[callee.symbol_id].return_type};
+  bindSymbol(ctx, callee.symbol_id);
+  return bindings_.expressions[ctx] =
+             ExprResult{symbols_[callee.symbol_id].return_type};
 }
 
 std::any
@@ -1133,6 +1174,7 @@ SemanticAnalyzer::visitNewExpr(CompiscriptParser::NewExprContext *ctx) {
           ctx);
     return ExprResult{TYPE_ERROR};
   }
+  bindSymbol(ctx, info->second.symbol_id);
   const int constructor = findMember(name, "constructor", true);
   if (constructor < 0 && !values.empty()) {
     error("SEM_CLASS_CONSTRUCTOR", "clase",
@@ -1184,6 +1226,7 @@ std::any SemanticAnalyzer::visitLeftHandSide(
       result =
           applyProperty(result, property->Identifier()->getText(), property);
     }
+    bindings_.expressions[suffix] = result;
   }
   return result;
 }

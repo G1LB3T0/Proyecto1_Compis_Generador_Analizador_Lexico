@@ -64,6 +64,12 @@ struct Symbol {
   int function_scope_id = -1;
   std::set<int> captures;
   std::set<int> captured_by;
+  // Información añadida por la fase de código intermedio.
+  size_t size = 0;
+  int offset = -1;
+  int lexical_depth = 0;
+  std::string storage;
+  std::string label;
 };
 
 // Entorno anidado con referencia a su padre, símbolos propios e hijos.
@@ -76,6 +82,8 @@ struct Scope {
   size_t line = 0;
   std::map<std::string, int> symbols;
   std::vector<int> children;
+  int lexical_depth = 0;
+  size_t frame_size = 0;
 };
 
 // Índice de atributos y métodos declarados por cada clase.
@@ -99,6 +107,55 @@ struct SemanticResult {
   std::vector<ClassInfo> classes;
 };
 
+// Cuádruplo de código de tres direcciones. Los campos vacíos no participan en
+// la instrucción; `text` es exclusivamente la representación legible del
+// cuádruplo estructurado.
+struct TacInstruction {
+  size_t index = 0;
+  std::string op;
+  std::string arg1;
+  std::string arg2;
+  std::string result;
+  std::string text;
+  size_t line = 0;
+  size_t column = 0;
+};
+
+// Diseño de un registro de activación relativo al frame pointer. Los enlaces y
+// direcciones ocupan una palabra de ocho bytes en el modelo abstracto.
+struct ActivationRecord {
+  int function_symbol_id = -1;
+  int scope_id = -1;
+  std::string name;
+  std::string label;
+  int lexical_depth = 0;
+  int control_link_offset = 0;
+  int access_link_offset = 8;
+  int return_address_offset = 16;
+  int return_value_offset = 24;
+  size_t parameter_bytes = 0;
+  size_t local_bytes = 0;
+  size_t temporary_bytes = 0;
+  size_t frame_size = 0;
+  std::vector<int> parameter_symbols;
+  std::vector<int> local_symbols;
+  std::vector<int> captured_symbols;
+};
+
+// Producto de la fase de generación intermedia.
+struct TacResult {
+  bool ok = false;
+  bool skipped = false;
+  std::string reason;
+  std::vector<Diagnostic> diagnostics;
+  std::vector<TacInstruction> instructions;
+  std::vector<ActivationRecord> activation_records;
+  std::string text;
+  size_t temporaries_created = 0;
+  size_t temporaries_reused = 0;
+  size_t max_live_temporaries = 0;
+};
+
 struct TokenInfo {
   std::string type;
   std::string category;
@@ -107,15 +164,17 @@ struct TokenInfo {
   size_t column = 0;
 };
 
-// Resultado unificado de las fases léxica, sintáctica y semántica.
+// Resultado unificado de las fases léxica, sintáctica, semántica y TAC.
 struct AnalysisResult {
   bool ok = false;
   bool syntax_ok = false;
   bool semantic_ok = false;
+  bool tac_ok = false;
   std::string filename;
   std::vector<TokenInfo> tokens;
   std::vector<Diagnostic> syntax_diagnostics;
   SemanticResult semantic;
+  TacResult tac;
   std::string tree_json = "null";
 };
 
