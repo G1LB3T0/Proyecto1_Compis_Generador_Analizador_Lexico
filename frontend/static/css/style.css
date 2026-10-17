@@ -84,7 +84,7 @@ select:focus, input:focus, textarea:focus { border-color: var(--blue); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--purple); }
 #source-editor { display: block; width: 100%; min-height: 430px; resize: vertical; padding: 18px 20px; border: 0; outline: 0; background: #121620; color: #dce4f2; font: 13px/1.72 var(--mono); tab-size: 2; caret-color: var(--blue); }
 
-.summary-grid { margin: 16px 0; display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 10px; }
+.summary-grid { margin: 16px 0; display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; }
 .summary-card { padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
 .summary-card span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
 .summary-card strong { display: block; margin-top: 4px; font: 19px var(--mono); }
@@ -98,6 +98,13 @@ select:focus, input:focus, textarea:focus { border-color: var(--blue); }
 .tab span { margin-left: 4px; padding: 1px 5px; border-radius: 999px; background: var(--border); font-size: 10px; }
 .result-panel { display: none; min-height: 180px; max-height: 620px; overflow: auto; padding: 16px; }
 .result-panel.active { display: block; }
+
+.tac-metrics { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 9px; margin: 14px 0; }
+.tac-metrics .test-metric { margin: 0; }
+.tac-code { max-height: 430px; margin: 0; padding: 16px 18px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #0f141d; color: #b8f3d2; white-space: pre; tab-size: 2; font: 12px/1.65 var(--mono); }
+.semantic-section-title:has(.tac-copy) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: center; }
+.semantic-section-title:has(.tac-copy) p { grid-column: 1; }
+.tac-copy { grid-column: 2; grid-row: 1 / span 2; }
 
 .empty-result { padding: 32px; text-align: center; color: var(--muted); }
 .success-banner { padding: 14px; border: 1px solid rgba(101,214,157,.35); border-radius: 8px; background: rgba(101,214,157,.08); color: var(--green); }
@@ -232,4 +239,5 @@ select:focus, input:focus, textarea:focus { border-color: var(--blue); }
   .test-kind { grid-column: 2; justify-self: start; }
   .test-case-body { padding-left: 12px; }
   .scope-explanation-grid { grid-template-columns: 1fr; }
+  .tac-metrics { grid-template-columns: repeat(2, 1fr); }
 }

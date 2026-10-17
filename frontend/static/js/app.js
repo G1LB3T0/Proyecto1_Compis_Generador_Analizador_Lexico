@@ -1,4 +1,4 @@
-// Controlador del IDE: archivos, análisis, árbol gráfico y tablas semánticas.
+// Controlador del IDE: análisis, TAC, árbol y tablas semánticas extendidas.
 const editor = document.getElementById('source-editor');
 const filenameInput = document.getElementById('filename');
 const statusBox = document.getElementById('status');
@@ -167,7 +167,7 @@ async function analyze() {
     latestResult = data;
     renderResult(data);
     setStatus(
-      data.ok ? 'Análisis completado sin errores.' : `Análisis completado con ${data.diagnostics.length} diagnóstico(s).`,
+      data.ok ? 'Compilación y generación TAC completadas.' : `Compilación finalizada con ${data.diagnostics.length} diagnóstico(s).`,
       data.ok ? 'success' : 'error',
     );
   } catch (error) {
@@ -180,6 +180,7 @@ async function analyze() {
 function renderResult(data) {
   renderSummary(data);
   renderDiagnostics(data.diagnostics || []);
+  renderTac(data.tac || {});
   renderTree(data.tree);
   renderSymbols(data.semantic || {});
   renderTypeSystem(data.semantic || {});
@@ -196,6 +197,7 @@ function renderSummary(data) {
   const cards = [
     ['Sintaxis', data.syntax_ok ? 'Correcta' : 'Con errores', data.syntax_ok],
     ['Semántica', data.semantic_ok ? 'Correcta' : (data.semantic?.skipped ? 'Omitida' : 'Con errores'), data.semantic_ok],
+    ['Código TAC', data.tac_ok ? 'Generado' : (data.tac?.skipped ? 'Omitido' : 'Con errores'), data.tac_ok],
     ['Tokens', summary.tokens, true],
     ['Símbolos', summary.symbols, true],
     ['Ámbitos', summary.scopes, true],
@@ -220,7 +222,7 @@ function renderDiagnostics(diagnostics) {
   if (!diagnostics.length) {
     const banner = document.createElement('div');
     banner.className = 'success-banner';
-    banner.textContent = '✓ No se encontraron errores léxicos, sintácticos ni semánticos.';
+    banner.textContent = '✓ No se encontraron errores y el código TAC fue generado correctamente.';
     panel.append(banner);
     return;
   }
@@ -244,6 +246,95 @@ function renderDiagnostics(diagnostics) {
     row.append(code, message, location);
     panel.append(row);
   }
+}
+
+// Presenta tanto la forma textual como los cuádruplos y frames que la originan.
+function renderTac(tac) {
+  const panel = document.getElementById('tac-panel');
+  const instructions = tac.instructions || [];
+  const frames = tac.activation_records || [];
+  document.getElementById('tac-count').textContent = instructions.length;
+  panel.replaceChildren();
+  if (tac.skipped) {
+    panel.append(emptyMessage(tac.reason || 'La generación TAC fue omitida.'));
+    return;
+  }
+  if (!tac.ok) {
+    panel.append(emptyMessage(tac.reason || 'No fue posible generar código intermedio.'));
+    return;
+  }
+
+  panel.append(semanticNote(
+    'Código de tres direcciones generado',
+    'Cada fila conserva el cuádruplo estructurado (operación, argumentos y resultado). La vista textual es una serialización legible del mismo modelo.',
+  ));
+
+  const metrics = document.createElement('div');
+  metrics.className = 'tac-metrics';
+  metrics.append(
+    testMetric(instructions.length, 'Instrucciones'),
+    testMetric(tac.temporaries_created || 0, 'Temporales creados'),
+    testMetric(tac.temporaries_reused || 0, 'Reutilizaciones'),
+    testMetric(tac.max_live_temporaries || 0, 'Máximo simultáneo'),
+  );
+  panel.append(metrics);
+
+  const codeHeader = subsectionTitle(
+    'Representación textual',
+    'Las etiquetas y nombres simbólicos se resolverán durante una fase posterior de código objeto.',
+  );
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'tree-control tac-copy';
+  copyButton.textContent = 'Copiar TAC';
+  copyButton.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(tac.text || '');
+    setStatus('Código TAC copiado.', 'success');
+  });
+  codeHeader.append(copyButton);
+  const code = document.createElement('pre');
+  code.className = 'tac-code';
+  code.textContent = tac.text || '';
+  panel.append(codeHeader, code);
+
+  panel.append(subsectionTitle(
+    'Cuádruplos emitidos',
+    'Los campos vacíos indican que la forma de instrucción no utiliza ese operando.',
+  ));
+  const table = makeTable(['#', 'Operación', 'Resultado', 'Arg. 1', 'Arg. 2', 'Fuente']);
+  instructions.forEach(instruction => addRow(table.tBodies[0], [
+    instruction.index,
+    codeCell(instruction.op),
+    codeCell(instruction.result || '—'),
+    codeCell(instruction.arg1 || '—'),
+    codeCell(instruction.arg2 || '—'),
+    instruction.line ? `${instruction.line}:${instruction.column}` : '—',
+  ]));
+  panel.append(table);
+
+  panel.append(subsectionTitle(
+    'Registros de activación',
+    'Los offsets son relativos al frame pointer: enlace de control 0, enlace de acceso 8, retorno 16 y valor retornado 24.',
+  ));
+  if (!frames.length) {
+    panel.append(emptyMessage('Este programa no declara funciones ni métodos.'));
+    return;
+  }
+  const frameTable = makeTable([
+    'Función', 'Etiqueta', 'Profundidad', 'Parámetros', 'Locales',
+    'Temporales', 'Frame total', 'Capturas',
+  ]);
+  frames.forEach(frame => addRow(frameTable.tBodies[0], [
+    frame.name,
+    codeCell(frame.label),
+    frame.lexical_depth,
+    `${frame.parameter_bytes} B`,
+    `${frame.local_bytes} B`,
+    `${frame.temporary_bytes} B`,
+    `${frame.frame_size} B`,
+    frame.captured_symbols.length ? frame.captured_symbols.map(id => `#${id}`).join(', ') : '—',
+  ]));
+  panel.append(frameTable);
 }
 
 function jumpTo(line, column) {
@@ -574,7 +665,7 @@ function createScope(scope, scopeMap, symbols) {
 }
 
 function symbolTable(items, symbols) {
-  const table = makeTable(['Nombre', 'Clase', 'Tipo / firma', 'Estado', 'Capturas', 'Ubicación']);
+  const table = makeTable(['Nombre', 'Clase', 'Tipo / firma', 'Almacenamiento', 'Offset / tamaño', 'Estado', 'Capturas', 'Ubicación']);
   const body = table.tBodies[0];
   for (const symbol of items) {
     const signature = symbol.kind === 'function' || symbol.kind === 'method'
@@ -584,6 +675,8 @@ function symbolTable(items, symbols) {
       codeCell(symbol.name),
       symbolRole(symbol.kind),
       codeCell(signature),
+      symbol.storage || '—',
+      symbol.offset === -1 ? `${symbol.size || 0} B` : `${symbol.offset} / ${symbol.size || 0} B`,
       symbol.mutable ? (symbol.initialized ? 'mutable · inicializado' : 'mutable · no inicializado') : 'solo lectura',
       captures.length ? captures.join(', ') : '—',
       `${symbol.line}:${symbol.column}`,
@@ -723,7 +816,7 @@ function renderScopeManagement(semantic) {
     '¿Qué demuestra esta tabla?',
     'Cada fila es un entorno creado realmente por el Visitor C++. Para resolver un nombre se revisa primero el entorno actual y, si no aparece, se continúa con su padre hasta llegar al ámbito global.',
   ));
-  const table = makeTable(['ID', 'Entorno', 'Tipo', 'Padre', 'Propietario', 'Símbolos declarados', 'Línea']);
+  const table = makeTable(['ID', 'Entorno', 'Tipo', 'Padre', 'Profundidad', 'Frame', 'Propietario', 'Símbolos declarados', 'Línea']);
   scopes.forEach(scope => {
     const owner = symbols.get(scope.owner_symbol_id);
     const names = (scope.symbol_ids || []).map(id => symbols.get(id)?.name).filter(Boolean);
@@ -732,6 +825,8 @@ function renderScopeManagement(semantic) {
       scope.name,
       scopeKind(scope.kind),
       scope.parent_id < 0 ? '— (raíz)' : `#${scope.parent_id}`,
+      scope.lexical_depth,
+      scope.frame_size ? `${scope.frame_size} B` : '—',
       owner?.name || '—',
       names.length ? names.join(', ') : '—',
       scope.line,
@@ -870,10 +965,10 @@ function renderTestReport(resultBox, data) {
   const titleGroup = document.createElement('div');
   const title = document.createElement('h3');
   title.textContent = data.ok
-    ? 'Batería semántica aprobada'
+    ? 'Batería semántica y TAC aprobada'
     : 'La batería encontró fallos';
   const explanation = document.createElement('p');
-  explanation.textContent = 'Un “error esperado” aprueba únicamente si el analizador produce el diagnóstico correcto; no basta con que el programa falle.';
+  explanation.textContent = 'Incluye casos válidos y fallidos de semántica y generación TAC. Un “error esperado” solo aprueba cuando la fase correcta rechaza u omite la entrada.';
   titleGroup.append(title, explanation);
 
   const actions = document.createElement('div');
@@ -978,7 +1073,7 @@ function renderTestReport(resultBox, data) {
   });
 }
 
-// Ejecuta y presenta la batería C++ con el detalle de cada regla semántica.
+// Ejecuta y presenta la batería C++ con reglas semánticas y de TAC.
 async function runTests() {
   const button = document.getElementById('tests-button');
   const resultBox = document.getElementById('tests-result');
