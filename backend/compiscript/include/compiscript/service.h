@@ -1,4 +1,4 @@
-// Expone el punto de entrada que coordina lexer, parser y análisis semántico.
+// Expone el punto de entrada que coordina lexer, parser, semántica y TAC.
 #pragma once
 
 #include "compiscript/model.h"

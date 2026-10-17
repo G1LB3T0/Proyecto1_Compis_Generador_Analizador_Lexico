@@ -1,10 +1,11 @@
-// Orquesta el front-end: fuente -> lexer -> parser -> Visitor semántico.
+// Orquesta el compilador: fuente -> lexer -> parser -> semántica -> TAC.
 #include "compiscript/service.h"
 
 #include "CompiscriptLexer.h"
 #include "CompiscriptParser.h"
 #include "compiscript/diagnostics.h"
 #include "compiscript/semantic_analyzer.h"
+#include "compiscript/tac_generator.h"
 #include "compiscript/token_classifier.h"
 #include "compiscript/tree_serializer.h"
 
@@ -62,14 +63,28 @@ AnalysisResult analyzeSource(const std::string &source,
     // La semántica solo se ejecuta sobre un árbol sintácticamente válido.
     SemanticAnalyzer analyzer;
     result.semantic = analyzer.analyze(tree);
+    if (result.semantic.ok) {
+      TacGenerator generator(result.semantic, analyzer.bindings());
+      result.tac = generator.generate(tree);
+    } else {
+      result.tac.ok = false;
+      result.tac.skipped = true;
+      result.tac.reason =
+          "La generación TAC se omitió porque existen errores semánticos.";
+    }
   } else {
     result.semantic.ok = false;
     result.semantic.skipped = true;
     result.semantic.reason = "El análisis semántico se omitió porque existen "
                              "errores léxicos o sintácticos.";
+    result.tac.ok = false;
+    result.tac.skipped = true;
+    result.tac.reason =
+        "La generación TAC se omitió porque el análisis sintáctico no fue válido.";
   }
   result.semantic_ok = result.syntax_ok && result.semantic.ok;
-  result.ok = result.syntax_ok && result.semantic_ok;
+  result.tac_ok = result.semantic_ok && result.tac.ok;
+  result.ok = result.syntax_ok && result.semantic_ok && result.tac_ok;
   return result;
 }
 
