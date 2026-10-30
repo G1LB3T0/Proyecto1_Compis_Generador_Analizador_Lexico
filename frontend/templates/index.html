@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- Estructura del IDE para escribir, analizar y revisar código Compiscript. -->
+<!-- IDE del intérprete SQL: escribir, analizar, ejecutar y revisar cada fase. -->
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Compiscript IDE — ANTLR + C++</title>
+  <title>Intérprete SQL — ANTLR + C++</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,27 +13,27 @@
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">C</div>
+      <div class="brand-mark">S</div>
       <div>
-        <h1>Compiscript</h1>
-        <p>ANTLR · Semántica · TAC · C++</p>
+        <h1>Intérprete SQL</h1>
+        <p>ANTLR · AST · Semántica · Archivos</p>
       </div>
     </div>
 
     <section>
-      <label class="section-label" for="example-select">Ejemplos .cps</label>
+      <label class="section-label" for="example-select">Ejemplos .sql</label>
       <select id="example-select"></select>
       <button class="button secondary" id="load-example">Abrir ejemplo</button>
     </section>
 
     <section>
       <label class="section-label" for="filename">Archivo actual</label>
-      <input id="filename" value="program.cps" autocomplete="off">
+      <input id="filename" value="script.sql" autocomplete="off">
       <div class="button-grid">
         <button class="button secondary" id="new-file">Nuevo</button>
         <label class="button secondary file-button">
           Cargar
-          <input id="local-file" type="file" accept=".cps">
+          <input id="local-file" type="file" accept=".sql">
         </label>
       </div>
       <div class="button-grid">
@@ -42,57 +42,55 @@
       </div>
     </section>
 
-    <button class="button primary" id="analyze-button">
-      <span>▶</span> Analizar programa
-    </button>
-    <button class="button tests" id="tests-button">Ejecutar batería de pruebas</button>
+    <section>
+      <button class="button primary" id="run-button"><span>▶</span> Ejecutar SQL</button>
+      <button class="button secondary" id="analyze-button">Analizar sin ejecutar</button>
+      <button class="button tests" id="tests-button">Ejecutar batería de pruebas</button>
+      <button class="button danger" id="reset-button">Reiniciar base de datos</button>
+    </section>
 
     <div class="pipeline-note">
       <strong>Pipeline activo</strong>
-      <span>Lexer ANTLR → Parser ANTLR → árbol → Visitor semántico → tabla extendida → TAC</span>
+      <span>SQL → Lexer ANTLR → Parser ANTLR → AST → análisis semántico → intérprete → archivos .csv / .idx → resultado</span>
     </div>
-    <div id="status" class="status">Listo para analizar.</div>
+    <div id="status" class="status">Listo para ejecutar.</div>
   </aside>
 
   <main class="workspace">
     <header class="topbar">
       <div>
-        <h2>Compilador de Compiscript</h2>
-        <p>Escribe Compiscript y revisa el análisis y su código intermedio.</p>
+        <h2>Intérprete SQL con almacenamiento en archivos</h2>
+        <p>Escribe sentencias SQL, ejecútalas y revisa cada fase del intérprete.</p>
       </div>
-      <div class="runtime-badge"><span></span> C++17</div>
+      <div class="runtime-badge"><span></span> C++17 · sin DBMS</div>
     </header>
 
     <section class="editor-card">
       <div class="panel-header">
-        <div class="file-tab"><span class="dot"></span><span id="tab-name">program.cps</span></div>
+        <div class="file-tab"><span class="dot"></span><span id="tab-name">script.sql</span></div>
         <div id="cursor-position">Ln 1, Col 1</div>
       </div>
-      <textarea id="source-editor" spellcheck="false" aria-label="Editor de Compiscript"></textarea>
+      <textarea id="source-editor" spellcheck="false" aria-label="Editor SQL"></textarea>
     </section>
 
     <section id="summary" class="summary-grid hidden"></section>
 
-    <section id="results" class="results hidden">
+    <section id="results" class="results">
       <nav class="tabs" aria-label="Resultados">
-        <button class="tab active" data-panel="diagnostics-panel">Diagnósticos <span id="diagnostic-count">0</span></button>
-        <button class="tab" data-panel="tac-panel">Código TAC <span id="tac-count">0</span></button>
+        <button class="tab active" data-panel="results-panel">Resultados <span id="statement-count">0</span></button>
+        <button class="tab" data-panel="diagnostics-panel">Errores <span id="diagnostic-count">0</span></button>
+        <button class="tab" data-panel="tokens-panel">Tokens <span id="token-count">0</span></button>
         <button class="tab" data-panel="tree-panel">Árbol sintáctico</button>
-        <button class="tab" data-panel="symbols-panel">Tabla de símbolos</button>
-        <button class="tab" data-panel="types-panel">Sistema de tipos</button>
-        <button class="tab" data-panel="scopes-panel">Manejo de ámbitos</button>
-        <button class="tab" data-panel="tokens-panel">Tokens</button>
-        <button class="tab" data-panel="classes-panel">Clases</button>
+        <button class="tab" data-panel="ast-panel">AST</button>
+        <button class="tab" data-panel="database-panel">Base de datos <span id="table-count">0</span></button>
       </nav>
 
-      <div id="diagnostics-panel" class="result-panel active"></div>
-      <div id="tac-panel" class="result-panel"></div>
-      <div id="tree-panel" class="result-panel"></div>
-      <div id="symbols-panel" class="result-panel"></div>
-      <div id="types-panel" class="result-panel"></div>
-      <div id="scopes-panel" class="result-panel"></div>
+      <div id="results-panel" class="result-panel active"></div>
+      <div id="diagnostics-panel" class="result-panel"></div>
       <div id="tokens-panel" class="result-panel"></div>
-      <div id="classes-panel" class="result-panel"></div>
+      <div id="tree-panel" class="result-panel tree-host"></div>
+      <div id="ast-panel" class="result-panel tree-host"></div>
+      <div id="database-panel" class="result-panel"></div>
     </section>
 
     <section id="tests-result" class="tests-result hidden"></section>
