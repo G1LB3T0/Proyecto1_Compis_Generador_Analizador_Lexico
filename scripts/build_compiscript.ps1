@@ -1,4 +1,4 @@
-# Variante de Windows para generar ANTLR, compilar el analizador y probarlo.
+# Proyecto 2 (Compiscript): genera ANTLR, compila el analizador y lo prueba.
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -22,6 +22,6 @@ try {
     Pop-Location
 }
 
-cmake -S $ProjectRoot -B $BuildDir -DCMAKE_BUILD_TYPE=Release
+cmake -S $ProjectRoot -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DBUILD_COMPISCRIPT=ON
 cmake --build $BuildDir --config Release --parallel
 ctest --test-dir $BuildDir -C Release --output-on-failure

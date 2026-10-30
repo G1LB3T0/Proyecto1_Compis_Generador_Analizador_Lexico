@@ -78,6 +78,8 @@ menu
 yapar
 compiscript_cli
 compiscript_tests
+sql_cli
+sql_tests
 
 # === Python ===
 __pycache__/
@@ -88,3 +90,6 @@ tools/*.jar
 
 # === Material de consulta local no redistribuido ===
 Instrucciones/
+
+# === Base de datos generada al ejecutar SQL en el IDE ===
+database/

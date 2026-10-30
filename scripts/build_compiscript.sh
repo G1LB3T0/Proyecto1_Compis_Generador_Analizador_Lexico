@@ -14,9 +14,9 @@ if [[ ! -f "${ANTLR_JAR}" ]]; then
     "https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar"
 fi
 
-"${PROJECT_ROOT}/scripts/generate_antlr.sh"
+"${PROJECT_ROOT}/scripts/generate_antlr.sh" compiscript
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DBUILD_COMPISCRIPT=ON
 cmake --build "${BUILD_DIR}" --parallel
 ctest --test-dir "${BUILD_DIR}" --output-on-failure
 
