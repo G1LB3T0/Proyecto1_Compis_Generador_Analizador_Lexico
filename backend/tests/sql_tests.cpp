@@ -59,6 +59,7 @@ struct TestCase {
   std::string expected;
   std::string explanation;
   std::function<bool(const Outcome &)> verify;
+  std::function<void(const fs::path &)> prepare; // fallos de disco y bases antiguas
 };
 
 struct TestRun {
@@ -173,10 +174,11 @@ std::vector<TestCase> cases() {
   auto valid = [&](std::string category, std::string rule, std::string name,
                    std::string source, std::string expected, std::string explanation,
                    std::function<bool(const Outcome &)> verify, bool seed = true,
-                   std::string followup = "") {
+                   std::string followup = "",
+                   std::function<void(const fs::path &)> prepare = {}) {
     tests.push_back({std::move(category), std::move(rule), std::move(name), "Caso válido",
                      seed, std::move(source), std::move(followup), std::move(expected),
-                     std::move(explanation), std::move(verify)});
+                     std::move(explanation), std::move(verify), std::move(prepare)});
   };
   auto invalid = [&](std::string category, std::string rule, std::string name,
                      std::string source, std::string code, std::string explanation,
@@ -771,6 +773,166 @@ std::vector<TestCase> cases() {
         "Las restricciones usan la clave completa leída del archivo .idx.",
         [](const Outcome &o) { return o.main.ok && rejectedWith(o.followup, "EXE002"); },
         false, "INSERT INTO t VALUES ('a\n#b');");
+  valid(R, "Planificador", "OR une candidatos sin duplicar filas",
+        "SELECT id FROM estudiantes WHERE id = 1 OR id IN (1, 3) ORDER BY id;",
+        "1, 3 mediante índice",
+        "La unión de ambas ramas conserva todos los candidatos sin repetir rowids.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"1", "3"}) &&
+                 planContains(last(o.main), "Index Scan");
+        });
+  valid(R, "Planificador", "OR con una rama sin índice conserva sus resultados",
+        "SELECT id FROM estudiantes WHERE id = 1 OR edad = 17 ORDER BY id;",
+        "1, 2 mediante recorrido completo",
+        "No se restringe el OR cuando una rama necesita examinar la tabla.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"1", "2"}) &&
+                 planContains(last(o.main), "Full Scan");
+        });
+  valid(R, "Planificador", "AND intersecta índices y respeta el predicado residual",
+        "CREATE INDEX idx_edad ON estudiantes(edad); "
+        "SELECT id FROM estudiantes WHERE id >= 2 AND edad >= 19 AND activo = TRUE;",
+        "5",
+        "La intersección reduce candidatos y luego se evalúa la condición completa.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"5"}) &&
+                 planContains(last(o.main), "Index Scan");
+        });
+  valid(R, "Planificador", "La desigualdad usa índice y excluye NULL",
+        "CREATE TABLE t (x INT); CREATE INDEX idx_x ON t(x); "
+        "INSERT INTO t VALUES (NULL),(1),(2),(3); SELECT x FROM t WHERE x <> 2;",
+        "1, 3",
+        "El índice omite NULL y se excluye la clave igual al operando.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"1", "3"}) &&
+                 planContains(last(o.main), "Index Scan");
+        }, false);
+  valid(R, "Acceso directo", "Una consulta fría decodifica solo su fila candidata",
+        "SELECT nombre FROM estudiantes WHERE id = 1;", "Una fila leída del CSV",
+        "El catálogo y la vista de archivos tampoco fuerzan la carga de todas las tablas.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"Ana"}) &&
+                 contains(o.main.database_json, "\"reads\":{\"table_rows\":1,");
+        });
+  valid(R, "Acceso directo", "JOIN indexado evita cargar las tablas completas",
+        "SELECT e.nombre, c.nombre FROM inscripciones i "
+        "JOIN estudiantes e ON e.id = i.estudiante_id JOIN cursos c ON c.id = i.curso_id "
+        "WHERE i.id = 1;", "Tres filas leídas de tres archivos",
+        "La fila base y las dos búsquedas del JOIN utilizan posiciones directas.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"Ana"}) &&
+                 contains(o.main.database_json, "\"reads\":{\"table_rows\":3,");
+        });
+  valid(R, "Acceso directo", "Las posiciones cambian junto con INSERT, UPDATE y DELETE",
+        "CREATE TABLE t (id INT PRIMARY KEY, x VARCHAR(40)); "
+        "INSERT INTO t VALUES (1,'a'),(2,'b'),(3,'c'); "
+        "UPDATE t SET x = 'ñ😀\nlargo' WHERE id = 2; "
+        "DELETE FROM t WHERE id = 1; INSERT INTO t VALUES (4,'d');",
+        "Las filas 2 y 4 se leen correctamente tras reabrir",
+        "Los offsets incluyen comillas, UTF-8 y saltos de línea de cada registro CSV.",
+        [](const Outcome &o) {
+          return o.main.ok && o.followup.ok && column(last(o.followup)) == list({"2", "4"}) &&
+                 column(last(o.followup), 1) == list({"ñ😀\nlargo", "d"}) &&
+                 contains(o.followup.database_json, "\"reads\":{\"table_rows\":2,");
+        }, false, "SELECT * FROM t WHERE id IN (2,4);");
+  valid(R, "Compatibilidad", "Las bases antiguas sin posiciones siguen funcionando",
+        "UPDATE estudiantes SET edad = 21 WHERE id = 1;",
+        "La actualización crea el directorio de posiciones",
+        "Una tabla antigua se carga normalmente y obtiene posiciones al persistirse.",
+        [](const Outcome &o) {
+          return o.main.ok && o.followup.ok && column(last(o.followup)) == list({"21"}) &&
+                 fs::exists(fs::path(o.database) / "estudiantes.rows");
+        }, true, "SELECT edad FROM estudiantes WHERE id = 1;",
+        [](const fs::path &db) { fs::remove(db / "estudiantes.rows"); });
+  valid(R, "Atomicidad en disco", "Fallar un índice conserva CSV, posiciones y catálogo",
+        "INSERT INTO cursos VALUES (8, 'Redes', 4);",
+        "EXE008; ninguna fila nueva ni cambios en NEXT_ROWID",
+        "Todos los temporales se preparan antes de modificar cualquier archivo original.",
+        [](const Outcome &o) {
+          const fs::path db(o.database);
+          return rejectedWith(o.main, "EXE008") && last(o.main).files.empty() &&
+                 o.followup.ok && column(last(o.followup)) == list({"4"}) &&
+                 contains(readFile(db / "metadata.txt"), "TABLE cursos\n  NEXT_ROWID 5") &&
+                 !contains(readFile(db / "cursos.csv"), "Redes") &&
+                 !fs::exists(db / ".transaction");
+        }, true, "SELECT COUNT(*) FROM cursos;",
+        [](const fs::path &db) { fs::create_directory(db / "indexes" / "pk_cursos.idx.tmp"); });
+  valid(R, "Atomicidad en disco", "Un UPDATE fallido conserva las claves anteriores",
+        "UPDATE cursos SET creditos = 10 WHERE id = 1;",
+        "EXE008; el curso conserva 5 créditos",
+        "Un error durante la preparación no confirma cambios en la tabla.",
+        [](const Outcome &o) {
+          return rejectedWith(o.main, "EXE008") && o.followup.ok &&
+                 column(last(o.followup)) == list({"5"});
+        }, true, "SELECT creditos FROM cursos WHERE id = 1;",
+        [](const fs::path &db) { fs::create_directory(db / "indexes" / "pk_cursos.idx.tmp"); });
+  valid(R, "Atomicidad en disco", "CREATE fallido no deja tablas ni índices huérfanos",
+        "CREATE TABLE t (id INT PRIMARY KEY);", "EXE008; no se crean archivos de t",
+        "El catálogo y los archivos nuevos pertenecen a la misma confirmación.",
+        [](const Outcome &o) {
+          const fs::path db(o.database);
+          return rejectedWith(o.main, "EXE008") && !fs::exists(db / "t.csv") &&
+                 !fs::exists(db / "t.rows") && !fs::exists(db / "indexes" / "pk_t.idx") &&
+                 !fs::exists(db / "metadata.txt");
+        }, false, "",
+        [](const fs::path &db) { fs::create_directory(db / "metadata.txt.tmp"); });
+  valid(R, "Atomicidad en disco", "DROP fallido conserva la tabla y sus índices",
+        "DROP TABLE inscripciones;", "EXE008; la tabla sigue disponible",
+        "Las eliminaciones también esperan la preparación del catálogo.",
+        [](const Outcome &o) {
+          return rejectedWith(o.main, "EXE008") && o.followup.ok &&
+                 column(last(o.followup)) == list({"6"}) &&
+                 fs::exists(fs::path(o.database) / "indexes" / "pk_inscripciones.idx");
+        }, true, "SELECT COUNT(*) FROM inscripciones;",
+        [](const fs::path &db) { fs::create_directory(db / "metadata.txt.tmp"); });
+  valid(R, "Recuperación", "Abrir revierte una instalación interrumpida",
+        "SELECT COUNT(*) FROM cursos;", "Se recuperan las cuatro filas y el índice",
+        "El diario restaura respaldos y elimina archivos que no existían antes.",
+        [](const Outcome &o) {
+          const fs::path db(o.database);
+          return o.main.ok && column(last(o.main)) == list({"4"}) &&
+                 fs::exists(db / "indexes" / "pk_cursos.idx") &&
+                 !fs::exists(db / "fantasma.csv") && !fs::exists(db / ".transaction");
+        }, true, "", [](const fs::path &db) {
+          const fs::path journal = db / ".transaction";
+          fs::create_directories(journal / "backup" / "indexes");
+          fs::copy_file(db / "cursos.csv", journal / "backup" / "cursos.csv");
+          fs::copy_file(db / "indexes" / "pk_cursos.idx",
+                        journal / "backup" / "indexes" / "pk_cursos.idx");
+          std::ofstream(journal / "manifest") <<
+              "1 1 cursos.csv\n0 1 fantasma.csv\n1 0 indexes/pk_cursos.idx\n";
+          std::ofstream(journal / "ready") << "ready\n";
+          std::ofstream(db / "cursos.csv") << "archivo interrumpido\n";
+          std::ofstream(db / "fantasma.csv") << "archivo nuevo sin confirmar\n";
+          fs::remove(db / "indexes" / "pk_cursos.idx");
+        });
+  valid(R, "Recuperación", "Una confirmación terminada no se revierte al limpiar el diario",
+        "SELECT COUNT(*) FROM cursos;", "Conserva cuatro filas y elimina el diario",
+        "El marcador de confirmación distingue una limpieza pendiente de un rollback.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"4"}) &&
+                 !fs::exists(fs::path(o.database) / ".transaction");
+        }, true, "", [](const fs::path &db) {
+          fs::create_directory(db / ".transaction");
+          std::ofstream(db / ".transaction" / "manifest") << "0 1 cursos.csv\n";
+          std::ofstream(db / ".transaction" / "ready") << "ready\n";
+          std::ofstream(db / ".transaction" / "committed") << "committed\n";
+        });
+  valid(R, "Concurrencia", "Una segunda ejecución no modifica una base ocupada",
+        "SELECT 1;", "EXE008 mientras otra ejecución conserva el bloqueo",
+        "El bloqueo del sistema operativo protege los datos y el diario de recuperación.",
+        [](const Outcome &o) {
+          sql::Storage owner(o.database);
+          std::string error;
+          if (!owner.open(error))
+            return false;
+          sql::RunOptions options;
+          options.database = o.database;
+          const Result contender = sql::runScript("SELECT 1;", options);
+          options.execute = false;
+          const Result analyzer = sql::runScript("SELECT 1;", options);
+          return rejectedWith(contender, "EXE008") && rejectedWith(analyzer, "EXE008");
+        }, false);
   return tests;
 }
 
@@ -794,6 +956,8 @@ std::vector<TestRun> runTests() {
     }
     Outcome outcome;
     outcome.database = database.string();
+    if (test.prepare)
+      test.prepare(database);
     options.execute = test.name.find("sin ejecutar") == std::string::npos;
     outcome.main = sql::runScript(test.source, options);
     options.execute = true;
