@@ -426,7 +426,11 @@ std::any AstBuilder::visitLiteralPrimary(SQLParser::LiteralPrimaryContext *ctx) 
             token->getSymbol());
     }
   } else if (auto *token = literal->FLOAT_LITERAL()) {
-    expr->literal = Value::makeFloat(std::stod(token->getText()));
+    const auto value = parseFloat(token->getText());
+    if (value)
+      expr->literal = Value::makeFloat(*value);
+    else
+      error("SEM018", "El decimal está fuera del rango de FLOAT.", token->getSymbol());
   } else if (literal->K_DATE()) {
     const std::string text = unquote(literal->STRING_LITERAL()->getText());
     if (!isValidDate(text))

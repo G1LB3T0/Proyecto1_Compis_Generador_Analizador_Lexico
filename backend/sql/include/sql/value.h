@@ -81,5 +81,9 @@ std::optional<Value> coerceToType(const Value &value, const DataType &type,
                                   std::string &error);
 
 std::string formatFloat(double value);
+// Conversión independiente del locale, con control de rango y consumo completo.
+std::optional<double> parseFloat(const std::string &text);
+// VARCHAR mide puntos de código Unicode, no bytes de la codificación UTF-8.
+size_t characterCount(const std::string &text);
 
 } // namespace sql

@@ -333,9 +333,9 @@ void SemanticAnalyzer::checkAssignable(Expr &value, const ColumnSchema &column) 
   case BaseType::Varchar:
     if (isText(type)) {
       if (isTextLiteral(value) &&
-          static_cast<int>(value.literal.text.size()) > column.type.length)
+          characterCount(value.literal.text) > static_cast<size_t>(column.type.length))
         error("SEM008", "El texto '" + value.literal.text + "' tiene " +
-                            std::to_string(value.literal.text.size()) +
+                            std::to_string(characterCount(value.literal.text)) +
                             " caracteres y excede " + target + ".",
               value.loc);
       return;
@@ -503,7 +503,8 @@ void SemanticAnalyzer::analyzeSelect(SelectStatement &select) {
   for (auto &expr : select.group_by)
     check(*expr, {"GROUP BY", false});
 
-  select.aggregate_query = !select.group_by.empty() || containsAggregate(select.having.get());
+  // HAVING crea un grupo implícito aunque no haya funciones de agregación.
+  select.aggregate_query = !select.group_by.empty() || select.having != nullptr;
   for (const auto &item : select.items)
     select.aggregate_query = select.aggregate_query || containsAggregate(item.expr.get());
   for (const auto &item : select.order_by)
@@ -808,7 +809,7 @@ DataType SemanticAnalyzer::check(Expr &expr, const Clause &clause) {
       expr.type = DataType::real();
       break;
     case Value::Kind::Text:
-      expr.type = DataType::varchar(static_cast<int>(expr.literal.text.size()));
+      expr.type = DataType::varchar(static_cast<int>(characterCount(expr.literal.text)));
       break;
     case Value::Kind::Boolean:
       expr.type = DataType::boolean();

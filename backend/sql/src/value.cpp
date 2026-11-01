@@ -2,7 +2,7 @@
 #include "sql/value.h"
 
 #include <cmath>
-#include <cstdio>
+#include <charconv>
 #include <sstream>
 
 namespace sql {
@@ -82,15 +82,31 @@ Value Value::makeDate(std::string v) {
 }
 
 std::string formatFloat(double value) {
-  if (std::isfinite(value) && value == std::floor(value) &&
-      std::fabs(value) < 1e15) {
-    std::ostringstream output;
-    output << static_cast<long long>(value) << ".0";
-    return output.str();
-  }
   char buffer[64];
-  std::snprintf(buffer, sizeof(buffer), "%.10g", value);
-  return buffer;
+  // La representación más corta que reconstruye exactamente el mismo double.
+  const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+  std::string text(buffer, result.ptr);
+  if (text.find_first_of(".eE") == std::string::npos && std::isfinite(value))
+    text += ".0";
+  return text;
+}
+
+std::optional<double> parseFloat(const std::string &text) {
+  double value = 0.0;
+  const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+      !std::isfinite(value))
+    return std::nullopt;
+  return value;
+}
+
+size_t characterCount(const std::string &text) {
+  size_t count = 0;
+  for (unsigned char byte : text) {
+    if ((byte & 0xc0) != 0x80)
+      ++count;
+  }
+  return count;
 }
 
 std::string Value::toString() const {
@@ -215,9 +231,9 @@ std::optional<Value> coerceToType(const Value &value, const DataType &type,
     break;
   case BaseType::Varchar:
     if (value.kind == Value::Kind::Text) {
-      if (static_cast<int>(value.text.size()) > type.length) {
+      if (characterCount(value.text) > static_cast<size_t>(type.length)) {
         error = "el texto '" + value.text + "' tiene " +
-                std::to_string(value.text.size()) +
+                std::to_string(characterCount(value.text)) +
                 " caracteres y excede " + type.toString();
         return std::nullopt;
       }

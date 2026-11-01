@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 
 namespace sql {
 
@@ -20,6 +21,37 @@ namespace {
 }
 
 Value boolValue(bool value) { return Value::makeBool(value); }
+
+Value finiteFloat(double value, const SourceLocation &loc) {
+  if (!std::isfinite(value))
+    fail("EXE007", "El resultado numérico está fuera del rango de FLOAT.", loc);
+  return Value::makeFloat(value);
+}
+
+long long integerArithmetic(const std::string &op, long long a, long long b,
+                            const SourceLocation &loc) {
+  const auto minimum = std::numeric_limits<long long>::min();
+  const auto maximum = std::numeric_limits<long long>::max();
+  bool overflow = false;
+  if (op == "+")
+    overflow = (b > 0 && a > maximum - b) || (b < 0 && a < minimum - b);
+  else if (op == "-")
+    overflow = (b < 0 && a > maximum + b) || (b > 0 && a < minimum + b);
+  else if (op == "*") {
+    if (a > 0)
+      overflow = b > 0 ? a > maximum / b : b < minimum / a;
+    else if (a < 0)
+      overflow = b > 0 ? a < minimum / b : b < 0 && a < maximum / b;
+  } else
+    overflow = a == minimum && b == -1;
+  if (overflow)
+    fail("EXE007", "El resultado numérico está fuera del rango de INT.", loc);
+  if (op == "+") return a + b;
+  if (op == "-") return a - b;
+  if (op == "*") return a * b;
+  if (op == "/") return a / b;
+  return a % b;
+}
 
 // Divide una condición en sus conjunciones: a AND b AND c -> [a, b, c].
 void conjuncts(const Expr *expr, std::vector<const Expr *> &output) {
@@ -888,7 +920,7 @@ Value Executor::evaluate(const Expr &expr, const Context &ctx) {
     if (expr.op == "NOT")
       return boolValue(!operand.boolean);
     if (expr.op == "-")
-      return operand.kind == Value::Kind::Int ? Value::makeInt(-operand.integer)
+      return operand.kind == Value::Kind::Int ? Value::makeInt(integerArithmetic("-", 0, operand.integer, expr.loc))
                                               : Value::makeFloat(-operand.real);
     return operand;
   }
@@ -905,8 +937,6 @@ Value Executor::evaluate(const Expr &expr, const Context &ctx) {
   case ExprKind::InSubquery: {
     // Lógica de tres valores: sin coincidencia pero con NULL en la lista -> NULL.
     const Value operand = evaluate(*expr.children[0], ctx);
-    if (operand.isNull())
-      return Value::makeNull();
     std::vector<Value> values;
     if (expr.kind == ExprKind::InList) {
       for (size_t index = 1; index < expr.children.size(); ++index)
@@ -915,6 +945,11 @@ Value Executor::evaluate(const Expr &expr, const Context &ctx) {
       for (const Row &row : subqueryRows(expr, ctx))
         values.push_back(row.front());
     }
+    // IN sobre el conjunto vacío es FALSE incluso para un operando NULL.
+    if (values.empty())
+      return boolValue(expr.negated);
+    if (operand.isNull())
+      return Value::makeNull();
     bool saw_null = false;
     for (const Value &value : values) {
       if (value.isNull()) {
@@ -995,27 +1030,18 @@ Value Executor::evaluateBinary(const Expr &expr, const Context &ctx) {
   if ((op == "/" || op == "%") && right.asDouble() == 0.0)
     fail("EXE006", "División entre cero en '" + expr.text + "'.", expr.loc);
   if (integers) {
-    const long long a = left.integer, b = right.integer;
-    if (op == "+")
-      return Value::makeInt(a + b);
-    if (op == "-")
-      return Value::makeInt(a - b);
-    if (op == "*")
-      return Value::makeInt(a * b);
-    if (op == "/")
-      return Value::makeInt(a / b); // división entera, como en PostgreSQL
-    return Value::makeInt(a % b);
+    return Value::makeInt(integerArithmetic(op, left.integer, right.integer, expr.loc));
   }
   const double a = left.asDouble(), b = right.asDouble();
   if (op == "+")
-    return Value::makeFloat(a + b);
+    return finiteFloat(a + b, expr.loc);
   if (op == "-")
-    return Value::makeFloat(a - b);
+    return finiteFloat(a - b, expr.loc);
   if (op == "*")
-    return Value::makeFloat(a * b);
+    return finiteFloat(a * b, expr.loc);
   if (op == "/")
-    return Value::makeFloat(a / b);
-  return Value::makeFloat(std::fmod(a, b));
+    return finiteFloat(a / b, expr.loc);
+  return finiteFloat(std::fmod(a, b), expr.loc);
 }
 
 Value Executor::evaluateAggregate(const Expr &expr, const Context &ctx) {
@@ -1052,15 +1078,17 @@ Value Executor::evaluateAggregate(const Expr &expr, const Context &ctx) {
   }
   bool all_integers = true;
   long long integer_sum = 0;
-  double real_sum = 0.0;
+  long double real_sum = 0.0;
   for (const Value &value : values) {
     all_integers = all_integers && value.kind == Value::Kind::Int;
-    integer_sum += value.kind == Value::Kind::Int ? value.integer : 0;
+    if (expr.function == "SUM" && expr.type.base == BaseType::Int)
+      integer_sum = integerArithmetic("+", integer_sum, value.integer, expr.loc);
     real_sum += value.asDouble();
   }
   if (expr.function == "SUM")
-    return all_integers ? Value::makeInt(integer_sum) : Value::makeFloat(real_sum);
-  return Value::makeFloat(real_sum / static_cast<double>(values.size())); // AVG
+    return all_integers ? Value::makeInt(integer_sum)
+                        : finiteFloat(static_cast<double>(real_sum), expr.loc);
+  return finiteFloat(static_cast<double>(real_sum / values.size()), expr.loc); // AVG
 }
 
 } // namespace sql
