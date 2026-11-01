@@ -48,6 +48,7 @@ set(SQL_CORE
   backend/sql/src/catalog.cpp
   backend/sql/src/diagnostics.cpp
   backend/sql/src/executor.cpp
+  backend/sql/src/file_transaction.cpp
   backend/sql/src/json.cpp
   backend/sql/src/semantic_analyzer.cpp
   backend/sql/src/service.cpp

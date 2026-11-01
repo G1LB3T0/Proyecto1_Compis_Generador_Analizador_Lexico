@@ -7,14 +7,18 @@
 #pragma once
 
 #include "sql/catalog.h"
+#include "sql/file_transaction.h"
 #include "sql/value.h"
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 namespace sql {
+
+struct StorageLock;
 
 using Row = std::vector<Value>;
 
@@ -40,9 +44,15 @@ struct StoredFile {
   bool truncated = false;
 };
 
+struct StorageReads {
+  size_t rows = 0;
+  size_t bytes = 0;
+};
+
 class Storage {
 public:
   explicit Storage(std::string root);
+  ~Storage();
 
   // Crea las carpetas si faltan y carga metadata.txt.
   bool open(std::string &error);
@@ -54,16 +64,25 @@ public:
   std::string metadataPath() const;
   std::string tablePath(const std::string &table) const;
   std::string indexPath(const std::string &index) const;
+  std::string positionsPath(const std::string &table) const;
   std::string relative(const std::string &path) const;
 
   // Carga perezosa desde disco; las siguientes llamadas usan la copia en memoria.
   TableData *table(const std::string &name, std::string &error);
   IndexData *index(const std::string &name, std::string &error);
+  // Lee candidatos mediante posiciones de byte, sin cargar todo el CSV.
+  bool readRows(const std::string &name, const std::set<long long> &rowids,
+                TableData &result, std::string &error);
+  size_t rowCount(const std::string &name, std::string &error);
+  const StorageReads &reads() const { return reads_; }
+
+  void beginTransaction();
+  bool commitTransaction(std::string &error);
 
   void putTable(const std::string &name, TableData data);
   void putIndex(const std::string &name, IndexData data);
 
-  bool saveCatalog(std::string &error) const;
+  bool saveCatalog(std::string &error);
   bool saveTable(const std::string &name, std::string &error);
   bool saveIndex(const std::string &name, std::string &error);
   bool removeTable(const std::string &name, std::string &error);
@@ -79,10 +98,20 @@ public:
   std::vector<StoredFile> files(size_t max_bytes = 20000) const;
 
 private:
+  struct RowPosition {
+    size_t offset = 0;
+    size_t bytes = 0;
+  };
+  using RowDirectory = std::map<long long, RowPosition>;
+  const RowDirectory *positions(const std::string &name, std::string &error);
   std::string root_;
+  std::unique_ptr<StorageLock> lock_;
+  FileTransaction transaction_;
   Catalog catalog_;
   std::map<std::string, TableData> tables_;
   std::map<std::string, IndexData> indexes_;
+  std::map<std::string, RowDirectory> positions_;
+  StorageReads reads_;
 };
 
 // Codificación CSV de un valor: NULL es un campo vacío y el texto siempre va

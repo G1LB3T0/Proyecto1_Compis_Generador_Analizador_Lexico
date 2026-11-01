@@ -112,7 +112,9 @@ RunResult runScript(const std::string &source, const RunOptions &options) {
 
   if (!result.semantic_ok || !result.runtime_diagnostics.empty() || !options.execute) {
     result.execution_skipped = true;
-    if (!options.execute)
+    if (!result.runtime_diagnostics.empty())
+      result.execution_reason = "No se pudo abrir la base de datos.";
+    else if (!options.execute)
       result.execution_reason = "Modo análisis: se validó el script sin ejecutarlo "
                                 "ni modificar los archivos.";
     else if (!result.semantic_ok)
@@ -126,7 +128,7 @@ RunResult runScript(const std::string &source, const RunOptions &options) {
         item.message = options.execute ? "No se ejecutó." : "Semánticamente válida.";
       }
     }
-    result.ok = result.semantic_ok && !options.execute;
+    result.ok = result.semantic_ok && !options.execute && result.runtime_diagnostics.empty();
     result.database_json = databaseToJson(storage);
     return result;
   }

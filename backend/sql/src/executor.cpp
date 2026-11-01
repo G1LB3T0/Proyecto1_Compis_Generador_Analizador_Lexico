@@ -169,6 +169,7 @@ void Executor::persistTable(const std::string &name, TableData data,
   if (!storage_.saveTable(name, error))
     fail("EXE008", "Error al guardar " + name + ".csv: " + error, {});
   result.files.push_back(name + ".csv");
+  result.files.push_back(name + ".rows");
   for (auto &[index_name, index] : indexes) {
     storage_.putIndex(index_name, std::move(index));
     if (!storage_.saveIndex(index_name, error))
@@ -181,6 +182,7 @@ bool Executor::execute(Statement &statement, StatementResult &result,
                        Diagnostic &failure) {
   subquery_cache_.clear();
   subquery_stats_.clear();
+  storage_.beginTransaction();
   try {
     switch (statement.kind) {
     case StatementKind::CreateTable:
@@ -208,6 +210,9 @@ bool Executor::execute(Statement &statement, StatementResult &result,
       select(*std::get<std::shared_ptr<SelectStatement>>(statement.node), result);
       break;
     }
+    std::string storage_error;
+    if (!storage_.commitTransaction(storage_error))
+      fail("EXE008", storage_error, statement.loc);
   } catch (const ExecutionError &error) {
     // Si no se conoce una ubicación exacta se usa el inicio de la sentencia.
     const SourceLocation loc = error.loc.line ? error.loc : statement.loc;
@@ -215,9 +220,14 @@ bool Executor::execute(Statement &statement, StatementResult &result,
                loc.column, result.index};
     result.status = "error";
     result.message = error.message;
-    // Una sentencia fallida no deja cambios: se descarta la caché en memoria.
-    std::string ignored;
-    storage_.open(ignored);
+    result.files.clear();
+    result.affected = 0;
+    // Recargar únicamente después de recuperar el diario de la sentencia.
+    std::string recovery_error;
+    if (!storage_.open(recovery_error)) {
+      failure.message += "; " + recovery_error;
+      result.message = failure.message;
+    }
     return false;
   }
   for (const auto &[select, stats] : subquery_stats_) {
@@ -276,6 +286,7 @@ void Executor::dropTable(DropTableStatement &node, StatementResult &result) {
   if (!storage_.removeTable(node.table, error))
     fail("EXE008", error, {});
   result.files.push_back(node.table + ".csv (eliminado)");
+  result.files.push_back(node.table + ".rows (eliminado)");
   storage_.catalog().dropTable(node.table);
   saveCatalog(result);
   result.message = "Tabla " + node.table + " eliminada junto con sus índices.";

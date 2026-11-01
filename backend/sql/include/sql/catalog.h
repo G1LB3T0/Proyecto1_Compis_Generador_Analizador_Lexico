@@ -42,7 +42,7 @@ class Catalog {
 public:
   // Lee metadata.txt; si no existe el catálogo queda vacío.
   bool load(const std::string &path, std::string &error);
-  bool save(const std::string &path, std::string &error) const;
+  std::string serialize() const;
 
   const TableSchema *table(const std::string &name) const;
   TableSchema *table(const std::string &name);

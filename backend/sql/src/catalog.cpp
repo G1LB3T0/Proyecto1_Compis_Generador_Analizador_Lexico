@@ -11,7 +11,6 @@
 #include "sql/catalog.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -180,7 +179,7 @@ bool Catalog::load(const std::string &path, std::string &error) {
   return true;
 }
 
-bool Catalog::save(const std::string &path, std::string &error) const {
+std::string Catalog::serialize() const {
   std::ostringstream output;
   output << "# Catalogo del interprete SQL (generado automaticamente).\n"
          << "# TABLE/COLUMN describen esquemas, tipos y restricciones;\n"
@@ -215,22 +214,7 @@ bool Catalog::save(const std::string &path, std::string &error) const {
     output << '\n';
   }
 
-  // Escritura atómica: primero un temporal y luego se reemplaza el original.
-  const std::string temporary = path + ".tmp";
-  {
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    if (!file) {
-      error = "no se pudo escribir " + temporary;
-      return false;
-    }
-    file << output.str();
-  }
-  std::remove(path.c_str());
-  if (std::rename(temporary.c_str(), path.c_str()) != 0) {
-    error = "no se pudo reemplazar " + path;
-    return false;
-  }
-  return true;
+  return output.str();
 }
 
 } // namespace sql
