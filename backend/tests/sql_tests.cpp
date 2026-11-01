@@ -682,6 +682,95 @@ std::vector<TestCase> cases() {
           return o.followup.ok && column(last(o.followup)) == list({"Ana María"});
         },
         true, "SELECT nombre FROM estudiantes WHERE id = 1;");
+  const std::string R = "10. Regresiones de robustez";
+  valid(R, "Unicode", "VARCHAR cuenta caracteres UTF-8",
+        "CREATE TABLE t (nombre VARCHAR(4), simbolo VARCHAR(1)); "
+        "INSERT INTO t VALUES ('José', '😀'); SELECT * FROM t;",
+        "José y un emoji caben exactamente en sus columnas",
+        "La longitud se mide en puntos de código Unicode en semántica y ejecución.",
+        [](const Outcome &o) {
+          return o.main.ok && column(last(o.main)) == list({"José"}) &&
+                 column(last(o.main), 1) == list({"😀"});
+        }, false);
+  invalid(R, "Unicode", "VARCHAR sigue rechazando exceso de caracteres",
+          "CREATE TABLE t (x VARCHAR(3)); INSERT INTO t VALUES ('José');", "SEM008",
+          "José contiene cuatro caracteres, aunque ocupe cinco bytes.", false);
+  valid(R, "Unicode", "UPDATE valida valores calculados con Unicode",
+        "CREATE TABLE t (x VARCHAR(1)); INSERT INTO t VALUES ('a'); "
+        "UPDATE t SET x = (SELECT 'ñ'); SELECT x FROM t;", "ñ",
+        "La conversión durante la ejecución usa la misma medida que la semántica.",
+        [](const Outcome &o) { return o.main.ok && column(last(o.main)) == list({"ñ"}); },
+        false);
+  invalid(R, "FLOAT", "Un decimal fuera de rango produce diagnóstico",
+          "SELECT " + std::string(400, '9') + ".0;", "SEM018",
+          "Una conversión fuera de rango no debe abortar el proceso.", false);
+  invalid(R, "Rango numérico", "La suma entera detecta desbordamiento",
+          "SELECT 9223372036854775807 + 1;", "EXE007",
+          "Una operación fuera de rango no produce comportamiento indefinido.", false);
+  invalid(R, "Rango numérico", "La multiplicación entera detecta desbordamiento",
+          "SELECT -9223372036854775807 * -2;", "EXE007",
+          "Se valida el rango antes de multiplicar.", false);
+  invalid(R, "Rango numérico", "SUM detecta desbordamiento entero",
+          "CREATE TABLE t (x INT); INSERT INTO t VALUES (9223372036854775807),(1); "
+          "SELECT SUM(x) FROM t;", "EXE007",
+          "Las agregaciones también comprueban el rango del resultado.", false);
+  invalid(R, "Rango numérico", "La aritmética FLOAT rechaza infinito",
+          "SELECT 1" + std::string(308, '0') + ".0 * 10.0;", "EXE007",
+          "Un resultado infinito no debe guardarse en CSV ni en índices.", false);
+  valid(R, "FLOAT", "La precisión sobrevive al CSV y al índice",
+        "CREATE TABLE t (x FLOAT); CREATE INDEX idx_x ON t(x); "
+        "INSERT INTO t VALUES (0.123456789012345);",
+        "La misma clave sigue encontrándose después de reabrir",
+        "El formato decimal permite reconstruir exactamente el double original.",
+        [](const Outcome &o) {
+          return o.main.ok && o.followup.ok &&
+                 column(last(o.followup)) == list({"0.123456789012345"}) &&
+                 planContains(last(o.followup), "Index Scan");
+        }, false, "SELECT x FROM t WHERE x = 0.123456789012345;");
+  valid(R, "FLOAT", "Los valores subnormales sobreviven a la reapertura",
+        "CREATE TABLE t (x FLOAT); INSERT INTO t VALUES (0." + std::string(323, '0') + "5);",
+        "El valor mínimo representable no se pierde al leer el CSV",
+        "La lectura de FLOAT controla el rango sin descartar subnormales representables.",
+        [](const Outcome &o) {
+          return o.main.ok && o.followup.ok && column(last(o.followup)) == list({"TRUE"});
+        }, false, "SELECT x > 0.0 FROM t;");
+  valid(R, "HAVING", "HAVING FALSE filtra el grupo implícito",
+        "SELECT 1 HAVING FALSE;", "Cero filas",
+        "HAVING se evalúa incluso sin GROUP BY ni funciones de agregación.",
+        [](const Outcome &o) { return o.main.ok && last(o.main).rows.empty(); }, false);
+  valid(R, "HAVING", "HAVING TRUE conserva el grupo implícito",
+        "SELECT 1 HAVING TRUE;", "Una fila con 1",
+        "El grupo implícito se proyecta cuando la condición es verdadera.",
+        [](const Outcome &o) { return o.main.ok && column(last(o.main)) == list({"1"}); },
+        false);
+  invalid(R, "HAVING", "HAVING no permite columnas sin agrupar",
+          "SELECT edad FROM estudiantes HAVING edad > 18;", "SEM016",
+          "La consulta tiene un grupo implícito; edad debe agruparse o agregarse.");
+  valid(R, "NULL e IN", "NULL frente a una subconsulta vacía",
+        "SELECT NULL IN (SELECT 1 WHERE FALSE), "
+        "NULL NOT IN (SELECT 1 WHERE FALSE), NULL NOT IN (1, NULL);",
+        "FALSE, TRUE, NULL",
+        "El conjunto vacío se resuelve antes de aplicar la lógica de NULL.",
+        [](const Outcome &o) {
+          const auto &s = last(o.main);
+          return o.main.ok && s.rows.size() == 1 && s.rows[0][0].toString() == "FALSE" &&
+                 s.rows[0][1].toString() == "TRUE" && s.rows[0][2].isNull();
+        }, false);
+  valid(R, "Índices de texto", "Un índice conserva # y líneas vacías dentro del texto",
+        "CREATE TABLE t (x VARCHAR(80) UNIQUE); "
+        "INSERT INTO t VALUES ('primera\n#segunda\n\ntercera');",
+        "La clave se encuentra después de reabrir",
+        "Solo el encabezado del índice contiene comentarios; el contenido CSV se conserva.",
+        [](const Outcome &o) {
+          return o.main.ok && o.followup.ok && last(o.followup).rows.size() == 1 &&
+                 column(last(o.followup)) == list({"primera\n#segunda\n\ntercera"});
+        }, false, "SELECT x FROM t WHERE x = 'primera\n#segunda\n\ntercera';");
+  valid(R, "Índices de texto", "UNIQUE reconoce claves multilínea después de reabrir",
+        "CREATE TABLE t (x VARCHAR(80) UNIQUE); INSERT INTO t VALUES ('a\n#b');",
+        "EXE002 al intentar repetir la clave",
+        "Las restricciones usan la clave completa leída del archivo .idx.",
+        [](const Outcome &o) { return o.main.ok && rejectedWith(o.followup, "EXE002"); },
+        false, "INSERT INTO t VALUES ('a\n#b');");
   return tests;
 }
 
