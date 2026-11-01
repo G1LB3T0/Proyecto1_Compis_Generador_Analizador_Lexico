@@ -87,6 +87,8 @@ private:
   Row coerceRow(const TableSchema &schema, Row row, const SourceLocation &loc);
 
   TableData &loadTable(const std::string &name);
+  TableData loadRows(const std::string &name, const std::set<long long> &rowids);
+  size_t rowCount(const std::string &name);
   IndexData &loadIndex(const std::string &name);
   void persistTable(const std::string &name, TableData data,
                     std::map<std::string, IndexData> indexes, StatementResult &result);

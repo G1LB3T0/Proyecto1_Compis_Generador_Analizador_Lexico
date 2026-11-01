@@ -90,13 +90,13 @@ std::string databaseToJson(Storage &storage) {
   bool first_table = true;
   for (const auto &[name, schema] : storage.catalog().tables()) {
     std::string error;
-    const TableData *data = storage.table(name, error);
+    const size_t rows = storage.rowCount(name, error);
     if (!first_table)
       output << ',';
     first_table = false;
     output << "{\"name\":" << quoteJson(name)
            << ",\"file\":" << quoteJson(name + ".csv")
-           << ",\"rows\":" << (data ? data->rows.size() : 0)
+           << ",\"rows\":" << rows
            << ",\"next_rowid\":" << schema.next_rowid
            << ",\"error\":" << quoteJson(error) << ",\"columns\":[";
     for (size_t index = 0; index < schema.columns.size(); ++index) {
@@ -141,7 +141,8 @@ std::string databaseToJson(Storage &storage) {
            << ",\"truncated\":" << boolean(files[index].truncated)
            << ",\"content\":" << quoteJson(files[index].content) << '}';
   }
-  output << "]}";
+  output << "],\"reads\":{\"table_rows\":" << storage.reads().rows
+         << ",\"table_bytes\":" << storage.reads().bytes << "}}";
   return output.str();
 }
 

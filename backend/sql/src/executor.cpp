@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iterator>
 #include <limits>
 
 namespace sql {
@@ -143,6 +144,22 @@ TableData &Executor::loadTable(const std::string &name) {
   if (!data)
     fail("EXE008", "Error al leer la tabla: " + error, {});
   return *data;
+}
+
+TableData Executor::loadRows(const std::string &name, const std::set<long long> &rowids) {
+  TableData result;
+  std::string error;
+  if (!storage_.readRows(name, rowids, result, error))
+    fail("EXE008", "Error al leer registros: " + error, {});
+  return result;
+}
+
+size_t Executor::rowCount(const std::string &name) {
+  std::string error;
+  const size_t count = storage_.rowCount(name, error);
+  if (!error.empty())
+    fail("EXE008", error, {});
+  return count;
 }
 
 IndexData &Executor::loadIndex(const std::string &name) {
@@ -600,6 +617,27 @@ void Executor::remove(DeleteStatement &node, StatementResult &result) {
 std::optional<Executor::IndexAccess>
 Executor::chooseIndex(const std::string &table, size_t offset, size_t width,
                       const Expr *condition, const Context &ctx) {
+  if (condition && condition->kind == ExprKind::Binary &&
+      (condition->op == "AND" || condition->op == "OR")) {
+    auto left = chooseIndex(table, offset, width, condition->children[0].get(), ctx);
+    auto right = chooseIndex(table, offset, width, condition->children[1].get(), ctx);
+    const bool intersection = condition->op == "AND";
+    // OR solo puede restringir candidatos si ambas ramas están cubiertas.
+    if (!left || !right)
+      return intersection ? (left ? left : right) : std::nullopt;
+    IndexAccess access{left->index == right->index ? left->index
+                                                    : left->index + " + " + right->index,
+                       compact(condition->text), {}};
+    if (intersection)
+      std::set_intersection(left->rowids.begin(), left->rowids.end(),
+                            right->rowids.begin(), right->rowids.end(),
+                            std::inserter(access.rowids, access.rowids.end()));
+    else
+      std::set_union(left->rowids.begin(), left->rowids.end(),
+                     right->rowids.begin(), right->rowids.end(),
+                     std::inserter(access.rowids, access.rowids.end()));
+    return access;
+  }
   std::vector<const Expr *> parts;
   conjuncts(condition, parts);
   const TableSchema *schema = storage_.catalog().table(table);
@@ -653,7 +691,7 @@ Executor::chooseIndex(const std::string &table, size_t offset, size_t width,
         continue;
       std::string op = part->op;
       const bool is_equality = op == "=";
-      const bool is_range = op == "<" || op == "<=" || op == ">" || op == ">=";
+      const bool is_range = op == "<" || op == "<=" || op == ">" || op == ">=" || op == "<>";
       if ((pass == 0 && !is_equality) || (pass == 2 && !is_range) || pass == 1)
         continue;
       const Expr *column = part->children[0].get();
@@ -685,8 +723,11 @@ Executor::chooseIndex(const std::string &table, size_t offset, size_t width,
       } else if (op == "<=") {
         last = data.entries.upper_bound(key);
       }
-      for (auto entry = first; entry != last; ++entry)
+      for (auto entry = first; entry != last; ++entry) {
+        if (op == "<>" && valuesEqual(entry->first, key))
+          continue;
         access.rowids.insert(entry->second.begin(), entry->second.end());
+      }
       return access;
     }
   }
@@ -715,21 +756,20 @@ std::vector<Row> Executor::runSelect(const SelectStatement &select, const Contex
     combined.emplace_back();
   } else {
     const TableSchema &schema = *storage_.catalog().table(select.from.name);
-    const TableData &data = loadTable(select.from.name);
     auto access = chooseIndex(select.from.name, 0, schema.columns.size(),
                               select.where.get(), base_context);
     if (access) {
-      for (long long rowid : access->rowids) {
-        auto found = data.rows.find(rowid);
-        if (found != data.rows.end())
-          combined.push_back(found->second);
-      }
+      const TableData data = loadRows(select.from.name, access->rowids);
+      for (const auto &[rowid, row] : data.rows)
+        combined.push_back(row);
       if (plan)
         plan->push_back("Index Scan en " + select.from.name + " usando " + access->index +
                         " (" + access->condition + "): se leyeron " +
                         plural(combined.size(), "registro", "registros") + " de " +
-                        std::to_string(data.rows.size()) + " sin recorrer la tabla.");
+                        std::to_string(rowCount(select.from.name)) +
+                        " mediante posiciones directas (o caché), sin recorrer la tabla.");
     } else {
+      const TableData &data = loadTable(select.from.name);
       for (const auto &[rowid, row] : data.rows)
         combined.push_back(row);
       if (plan)
@@ -741,7 +781,7 @@ std::vector<Row> Executor::runSelect(const SelectStatement &select, const Contex
     size_t offset = schema.columns.size();
     for (const auto &join : select.joins) {
       const TableSchema &right_schema = *storage_.catalog().table(join.table.name);
-      const TableData &right = loadTable(join.table.name);
+      const size_t right_count = rowCount(join.table.name);
       std::vector<Row> next;
       size_t probes = 0, comparisons = 0;
       std::string used_index;
@@ -750,15 +790,15 @@ std::vector<Row> Executor::runSelect(const SelectStatement &select, const Contex
         auto access = chooseIndex(join.table.name, offset, right_schema.columns.size(),
                                   join.condition.get(), left_context);
         std::vector<const Row *> candidates;
+        TableData selected;
         if (access) {
           ++probes;
           used_index = access->index + " (" + access->condition + ")";
-          for (long long rowid : access->rowids) {
-            auto found = right.rows.find(rowid);
-            if (found != right.rows.end())
-              candidates.push_back(&found->second);
-          }
+          selected = loadRows(join.table.name, access->rowids);
+          for (const auto &[rowid, row] : selected.rows)
+            candidates.push_back(&row);
         } else {
+          const TableData &right = loadTable(join.table.name);
           for (const auto &[rowid, row] : right.rows)
             candidates.push_back(&row);
         }
@@ -781,7 +821,7 @@ std::vector<Row> Executor::runSelect(const SelectStatement &select, const Contex
         else
           plan->push_back("INNER JOIN " + join.table.name + ": Nested Loop, " +
                           std::to_string(combined.size()) + " × " +
-                          std::to_string(right.rows.size()) + " = " +
+                          std::to_string(right_count) + " = " +
                           std::to_string(comparisons) + " combinaciones evaluadas → " +
                           plural(next.size(), "fila", "filas") + ".");
       }
