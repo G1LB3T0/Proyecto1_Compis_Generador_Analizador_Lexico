@@ -10,11 +10,6 @@ almacenamiento en archivos de texto. **No usa ningún DBMS** (ni SQLite, ni
 MySQL, ni PostgreSQL). Está escrito en C++17 con ANTLR 4.13.2 y reutiliza la
 infraestructura del Proyecto 2 (Compiscript).
 
-> La explicación completa para la defensa está en
-> [docs/proyecto3-interprete-sql.md](docs/proyecto3-interprete-sql.md). Incluye
-> qué se reutilizó y qué es nuevo, el árbol de archivos, el flujo de una
-> sentencia, el formato de almacenamiento, cada archivo explicado y preguntas
-> frecuentes.
 
 ## Pipeline
 
