@@ -103,7 +103,7 @@ Proyecto/
 │   │   ├── sql/                       🆕 01…09 scripts de demostración, en orden de entregas
 │   │   └── compiscript/               📦 ejemplos del Proyecto 2
 │   └── tests/
-│       ├── sql_tests.cpp              🆕 86 casos (52 válidos, 34 errores esperados)
+│       ├── sql_tests.cpp              🆕 117 casos, incluidos fallos de disco y recuperación
 │       └── compiscript_tests.cpp      📦 107 casos del Proyecto 2
 │
 ├── frontend/
@@ -208,7 +208,8 @@ y ningún archivo se modifica.
 1. El **planificador** ve que `edad` tiene el índice `idx_estudiantes_edad` y
    que `18` es constante. En lugar de recorrer la tabla, pide al índice las
    claves `>= 18`, que son los rowids `{4, 5, 1, 7, 3, 6}`.
-2. Lee solo esos registros de `estudiantes.csv`, ya cargado en memoria.
+2. Busca sus posiciones en `estudiantes.rows` y lee solo esos registros de
+   `estudiantes.csv` (o usa la caché si la tabla ya está en memoria).
 3. Evalúa el `WHERE` completo sobre cada uno y proyecta `nombre`.
 4. Registra en el **plan de ejecución**: *"Index Scan en estudiantes usando
    idx_estudiantes_edad (edad >= 18): se leyeron 6 registros de 8 sin
@@ -258,6 +259,7 @@ database/
 ├── metadata.txt                 catálogo
 ├── carreras.csv                 una tabla = un CSV
 ├── estudiantes.csv
+├── estudiantes.rows             rowid → posición y longitud en bytes del CSV
 ├── cursos.csv
 ├── inscripciones.csv
 └── indexes/
@@ -322,10 +324,22 @@ __rowid,id,nombre,edad,promedio,activo,ingreso,carrera_id
 ```
 
 Cada línea dice "este valor está en estos rowids". En memoria es un
-`std::map<Value, std::set<rowid>>`, un árbol ordenado (equivalente a un
-árbol B en un motor real), por eso sirve para `=`, `IN` y para rangos
+`std::map<Value, std::set<rowid>>`, un árbol ordenado en memoria (no es un
+árbol B), por eso sirve para `=`, `<>`, `IN` y para rangos
 `<`, `<=`, `>`, `>=`. Los `NULL` no se indexan, porque `col = NULL` nunca es
 verdadero.
+
+Cada tabla también tiene un archivo de texto `<tabla>.rows`:
+
+```text
+ROWS 1 <tamaño_del_csv_en_bytes>
+<rowid> <offset_en_bytes> <longitud_en_bytes>
+```
+
+El directorio permite hacer `seekg` directamente a cada candidato del índice.
+Las posiciones incluyen comillas y saltos de línea dentro del texto. Se
+actualizan en la misma confirmación que el CSV. Las bases anteriores sin este
+archivo se cargan una vez y lo generan en la siguiente modificación.
 
 ### 6.5 Cómo persiste, paso a paso
 
@@ -334,15 +348,22 @@ verdadero.
    necesita** (carga perezosa).
 2. Cada sentencia que modifica datos trabaja sobre **una copia** de la tabla
    y de sus índices.
-3. Si termina bien, la copia reemplaza a la original y se **escribe a disco**
-   (tabla, índices y, si cambió, `metadata.txt`).
+3. Si termina bien, se preparan **todos** los archivos temporales (tabla,
+   posiciones, índices y, si cambió, `metadata.txt`) antes de tocar originales.
 4. Si falla a la mitad (por ejemplo, la 3.ª fila de un `INSERT` repite la
    PRIMARY KEY), la copia se descarta: **no quedan cambios parciales**.
-5. Cada archivo se escribe primero en `archivo.tmp` y luego se renombra.
-   Si el proceso se interrumpe, el archivo original queda intacto.
+5. `.transaction` guarda el manifiesto y los respaldos. Una instalación
+   fallida se revierte; si el proceso se interrumpe, se recupera al abrir la
+   base. El marcador `committed` conserva las operaciones ya confirmadas.
 6. Las sentencias se confirman **una por una** (*autocommit*, como en la
    consola de MySQL). Si la sentencia 5 falla, las 4 anteriores ya quedaron
    guardadas y las siguientes se omiten.
+
+Un bloqueo del sistema operativo (`.lock`) protege toda la ejecución del CLI,
+incluida la recuperación: una segunda ejecución sobre la misma base recibe
+`EXE008` mientras la primera la esté usando. El bloqueo se libera al cerrar
+el proceso. El diario protege frente a interrupciones del proceso; no se
+ofrece durabilidad ante cortes eléctricos mediante `fsync`.
 
 ---
 
@@ -392,6 +413,11 @@ condición por sus `AND` y busca, en este orden:
 1. `col = valor`;
 2. `col IN (lista)` o `col IN (SELECT …)` no correlacionada;
 3. `col <, <=, >, >= valor`.
+
+También admite `<>`. Para `AND` intersecta los accesos disponibles; para
+`OR` une los candidatos si **ambas ramas** pueden resolverse mediante índices.
+Cuando una rama del `OR` carece de índice se recorre la tabla para conservar
+todos los resultados correctos.
 
 Aquí `col` tiene índice y `valor` ya se conoce antes de leer la tabla: es un
 literal, una columna de una tabla anterior en el JOIN, una columna de la
@@ -570,8 +596,9 @@ y literales.
 ### Almacenamiento
 
 **`catalog.h/.cpp`** 🆕 — `Catalog` contiene las tablas (`TableSchema` con
-sus `ColumnSchema`) y los índices (`IndexSchema`). `load()` y `save()` leen
-y escriben `metadata.txt` (formato de la sección 6.2). También define
+sus `ColumnSchema`) y los índices (`IndexSchema`). `load()` lee el catálogo y
+`serialize()` produce el texto que la transacción guarda en `metadata.txt`.
+También define
 `RowLayout`, el orden de las columnas en una fila combinada de JOIN, que
 comparten la semántica y el intérprete.
 
@@ -581,8 +608,11 @@ comparten la semántica y el intérprete.
   `map<valor, set<rowid>>`.
 - `table()` e `index()` cargan los archivos de forma perezosa y los guardan
   en caché.
-- `saveTable()` y `saveIndex()` escriben con escritura atómica (`.tmp` y
-  renombrar).
+- `readRows()` consulta `.rows` y lee los candidatos mediante posiciones de byte.
+- `rowCount()` obtiene el tamaño de una tabla sin cargar todo el CSV.
+- `saveTable()` y `saveIndex()` preparan los archivos de una misma transacción.
+- `file_transaction.h/.cpp` administra temporales, respaldos, confirmación y
+  recuperación de escrituras y eliminaciones.
 - `buildIndex()` crea un índice recorriendo la tabla una vez.
 - `parseCsv()` y `encodeCsvValue()` implementan el formato CSV con comillas.
 - `reset()` vacía la base y `files()` entrega el contenido de los archivos
@@ -655,14 +685,16 @@ variable global y ahora recibe una "vista" por panel. Lo nuevo es:
 
 ### Pruebas, ejemplos y construcción
 
-**`backend/tests/sql_tests.cpp`** 🆕 — 86 casos en 9 categorías, una por
-entrega del enunciado más almacenamiento. Cada caso crea una base temporal,
+**`backend/tests/sql_tests.cpp`** 🆕 — 117 casos en 10 categorías: entregas,
+almacenamiento y regresiones de robustez. Cada caso crea una base temporal,
 carga una base de ejemplo si la necesita, ejecuta el SQL y verifica:
 
 - filas resultantes;
 - códigos de error;
 - líneas del plan (por ejemplo, que diga "Index Scan");
 - el contenido real de `metadata.txt`, `.csv` e `.idx`.
+- filas efectivamente leídas, posiciones tras cambios, Unicode, precisión
+  decimal, desbordamientos, errores de escritura, bloqueo y recuperación.
 
 El reporte `--json` tiene el formato del Proyecto 2.
 
@@ -691,7 +723,7 @@ arrancaba).
 ```
 
 Ambos scripts descargan ANTLR si hace falta, regeneran el parser, compilan y
-corren las 86 pruebas. Si ya tienes el runtime C++ de ANTLR descargado, define
+corren las 117 pruebas. Si ya tienes el runtime C++ de ANTLR descargado, define
 `ANTLR4_LOCAL_SOURCE` con su ruta para no descargarlo otra vez.
 
 Para abrir el IDE:
@@ -744,6 +776,10 @@ semántico, no se ejecuta nada.
 El plan de ejecución lo reporta: *"Index Scan … se leyeron 6 registros de 8
 sin recorrer la tabla"*. Las pruebas verifican esa línea, y también que el
 resultado sea igual al de un recorrido completo.
+Además, las regresiones verifican el contador `database.reads.table_rows`:
+una consulta fría por clave lee una sola fila; un JOIN de tres tablas lee
+solo sus tres candidatas. La vista de archivos lee una vista previa acotada
+y el catálogo cuenta filas mediante `.rows`, sin decodificar los CSV completos.
 
 **¿Qué es `__rowid`?**
 Un identificador interno estable de cada registro. Los índices guardan
@@ -764,8 +800,8 @@ ANTLR crea constantes C++ con esos nombres, y `NULL`, `TRUE`, `FALSE`,
 choque.
 
 **¿Usan algún DBMS?**
-No. Todo se guarda en `.txt`, `.csv` e `.idx` escritos por `storage.cpp` y
-`catalog.cpp`. La única dependencia del núcleo es el runtime de ANTLR.
+No. Todo se guarda en archivos de texto `.txt`, `.csv`, `.rows` e `.idx`.
+La única dependencia del núcleo es el runtime de ANTLR.
 
 ## 12. Alcance y limitaciones conocidas
 
@@ -777,6 +813,12 @@ No. Todo se guarda en `.txt`, `.csv` e `.idx` escritos por `storage.cpp` y
   de la `z`.
 - Cada sentencia es atómica, pero no hay transacciones de varias sentencias
   (`BEGIN`/`COMMIT`), porque no son parte del enunciado.
-- Las tablas se cargan completas en memoria al usarse. Los índices evitan
-  **evaluar** todos los registros, no leer el archivo. Es suficiente para el
-  tamaño de un proyecto académico.
+- Los recorridos completos y las modificaciones cargan la tabla en memoria.
+  Las consultas indexadas y los JOIN leen candidatos directamente del CSV.
+- `VARCHAR(n)` cuenta puntos de código Unicode; no realiza normalización ni
+  cuenta grafemas compuestos como una sola unidad. FLOAT conserva el valor
+  binario al persistir; un literal o resultado fuera de rango se diagnostica.
+- `HAVING` sin `GROUP BY` crea un grupo implícito; no permite columnas sin
+  agrupar. `NULL NOT IN (subconsulta vacía)` produce TRUE.
+- La recuperación cubre interrupciones del proceso; no se implementa `fsync`
+  para garantizar persistencia frente a un corte eléctrico.

@@ -37,7 +37,7 @@ SemanticAnalyzer ── catálogo (metadata.txt)
 Executor (intérprete) ─ planificador de índices
  │
  ▼
-database/  metadata.txt · <tabla>.csv · indexes/<índice>.idx
+database/  metadata.txt · <tabla>.csv · <tabla>.rows · indexes/<índice>.idx
  │
  ▼
 Resultado JSON ─► Flask (adaptador) ─► IDE web
@@ -64,15 +64,23 @@ Resultado JSON ─► Flask (adaptador) ─► IDE web
 database/
 ├── metadata.txt          esquemas, tipos, restricciones e índices
 ├── estudiantes.csv       __rowid + columnas; NULL = campo vacío; texto entre comillas
+├── estudiantes.rows      rowid -> posición y longitud en bytes dentro del CSV
 ├── cursos.csv
 └── indexes/
     ├── pk_estudiantes.idx    valor -> rowids, ordenado por valor
     └── idx_estudiantes_edad.idx
 ```
 
-Cada sentencia trabaja sobre una copia de la tabla y de sus índices y solo se
-escribe a disco si termina sin errores. La escritura es atómica: primero un
-`.tmp` y luego se renombra. El detalle está en la sección 6 de la guía.
+Cada sentencia prepara todos sus archivos `.tmp` y respalda los originales
+antes de reemplazarlos. Un diario permite revertir errores y recuperar una
+instalación interrumpida al abrir la base. Un bloqueo del sistema operativo
+impide que dos procesos modifiquen la misma base a la vez.
+
+Las consultas indexadas usan `<tabla>.rows` para leer solo los registros
+candidatos, incluidos los JOIN. `AND` intersecta candidatos y `OR` los une
+cuando ambas ramas tienen acceso por índice. Los cambios de datos reescriben
+el CSV y sus posiciones juntos. Las bases antiguas sin `.rows` siguen siendo
+compatibles y obtienen este archivo en la siguiente modificación.
 
 ## Requisitos
 
@@ -95,8 +103,8 @@ Estos scripts:
 1. descargan el JAR de ANTLR si falta;
 2. regeneran el lexer, el parser y el Visitor C++;
 3. compilan `sql_cli` y `sql_tests`;
-4. ejecutan la batería de **86 pruebas** (52 casos válidos y 34 errores
-   esperados).
+4. ejecutan la batería de **117 pruebas**, incluidos errores esperados,
+   reapertura, acceso directo, Unicode, rangos numéricos y fallos de disco.
 
 Si ya tienes el runtime C++ de ANTLR descargado, define `ANTLR4_LOCAL_SOURCE`
 con su ruta para no descargarlo de nuevo.
