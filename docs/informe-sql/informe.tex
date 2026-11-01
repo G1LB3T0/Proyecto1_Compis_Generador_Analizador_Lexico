@@ -1,0 +1,1085 @@
+% Proyecto 2.1: Explorando otras aplicaciones - intérprete SQL.
+% Documento autónomo para Overleaf. Compilar informe.tex con pdfLaTeX.
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{babel}
+\babelprovide[main,import]{spanish}
+\usepackage[margin=2.5cm,headheight=18pt,headsep=16pt]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{fancyvrb}
+\usepackage{float}
+\usepackage[hidelinks,hypertexnames=false]{hyperref}
+
+\definecolor{verdeUVG}{RGB}{0,105,60}
+\definecolor{bordeCodigo}{RGB}{190,198,208}
+\definecolor{grisTexto}{RGB}{83,91,101}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\DefineVerbatimEnvironment{sqlcode}{Verbatim}{samepage=true,fontsize=\footnotesize,
+  frame=single,rulecolor=\color{bordeCodigo},framesep=5pt,
+  numbers=left,numbersep=6pt,xleftmargin=12pt,baselinestretch=1.02}
+\DefineVerbatimEnvironment{archivo}{Verbatim}{samepage=true,fontsize=\footnotesize,
+  frame=single,rulecolor=\color{bordeCodigo},framesep=5pt,
+  baselinestretch=1.02}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\setlength{\emergencystretch}{2em}
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.16}
+\setcounter{tocdepth}{2}
+\hypersetup{pdftitle={Proyecto 2.1 - Interprete SQL con almacenamiento en archivos},
+  pdfauthor={Luis Gonzalez y Joel Jaquez},
+  pdfsubject={Construccion de Compiladores - Explorando otras aplicaciones}}
+
+% Encabezado equivalente al de los informes anteriores, sin dependencias extra.
+\makeatletter
+\def\ps@sqlreport{%
+  \def\@oddhead{\vbox{\hbox to\textwidth{\small Proyecto 2.1: Intérprete SQL\hfil ANTLR + C++17}\vskip5pt\hrule height0.4pt}}%
+  \let\@evenhead\@oddhead
+  \def\@oddfoot{\hfil\thepage\hfil}\let\@evenfoot\@oddfoot}
+\makeatother
+\pagestyle{sqlreport}
+\newcommand{\subhead}[1]{\par\medskip\noindent\textbf{#1}\par\nopagebreak\smallskip}
+\newcommand{\captura}[3]{%
+  \begin{figure}[H]\centering
+  \includegraphics[width=\textwidth,height=0.66\textheight,keepaspectratio]{img/#1}
+  \caption{#2}\label{#3}
+  \end{figure}}
+
+\begin{document}
+\renewcommand{\tablename}{Tabla}
+\begin{titlepage}
+\begin{center}
+\vspace*{0.2cm}
+\includegraphics[width=0.24\textwidth]{img/uvg-logo.png}
+\vspace{0.8cm}
+
+{\Large\scshape Universidad del Valle de Guatemala}\\[0.30cm]
+{\large Facultad de Ingeniería}\\[0.20cm]
+{\large Departamento de Ciencias de la Computación}\\[0.20cm]
+{\large Construcción de Compiladores}
+
+\vspace{1.0cm}
+\rule{\textwidth}{0.8pt}
+\vspace{0.45cm}
+
+{\Large\bfseries Proyecto 2.1}\\[0.22cm]
+{\large Explorando otras aplicaciones}\\[0.45cm]
+{\Huge\bfseries Intérprete SQL}\\[0.30cm]
+{\LARGE\bfseries con almacenamiento en archivos}
+
+\vspace{0.45cm}
+{\small ANTLR 4.13.2 \ $\bullet$ \ C++17 \ $\bullet$ \ AST \ $\bullet$ \ IDE web}\\[0.25cm]
+{\small\href{https://github.com/G1LB3T0/Proyecto1_Compis_Generador_Analizador_Lexico/tree/Compiladores2-Proyecto3}{Repositorio: rama Compiladores2-Proyecto3}}
+\vspace{0.45cm}
+\rule{\textwidth}{0.8pt}
+
+\vspace{0.9cm}
+{\large\bfseries Catedrático}\\[0.25cm]
+{\large Ing. Pablo Koch}
+\vspace{0.75cm}
+
+{\large\bfseries Integrantes}\\[0.3cm]
+{\large Luis Gonzalez --- 23353}\\[0.2cm]
+{\large Joel Jaquez --- 23369}
+
+\vfill
+{\large Guatemala, 31 de octubre de 2026}\\[0.18cm]
+{\small Versión del código documentada: \texttt{037ac10}}
+\end{center}
+\end{titlepage}
+
+\pagenumbering{roman}
+\tableofcontents
+\clearpage
+\listoffigures
+\clearpage
+\pagenumbering{arabic}
+
+\section{Introducción}
+
+Este informe presenta la implementación del \textbf{intérprete SQL con
+almacenamiento en archivos} correspondiente al Proyecto 2.1, \emph{Explorando
+otras aplicaciones}. En el repositorio, esta entrega se identifica mediante
+la rama \texttt{Compiladores2-Proyecto3}, por ser la tercera aplicación
+desarrollada en la serie de proyectos de compiladores.
+
+El objetivo es aplicar análisis léxico, análisis sintáctico, construcción de
+un árbol de sintaxis abstracta (AST), análisis semántico e interpretación a
+un lenguaje de consultas. Una sentencia válida se ejecuta sobre esquemas,
+registros e índices administrados por el propio programa. El sistema
+\textbf{no utiliza SQLite, MySQL, PostgreSQL ni otro DBMS} para almacenar los
+datos o ejecutar SQL.
+
+El núcleo está escrito en \textbf{C++17}. ANTLR genera el lexer y el parser
+desde \texttt{SQL.g4}; un Visitor construye el AST; el analizador semántico
+resuelve tablas, columnas y tipos; y el intérprete produce resultados o
+modifica archivos de texto. Flask sirve como adaptador entre el ejecutable
+nativo y el IDE web. La interfaz permite inspeccionar tanto el resultado
+como las fases que lo producen.
+
+La infraestructura se deriva de los proyectos de Compiscript, pero esta
+entrega \textbf{interpreta el AST directamente}: el flujo SQL no genera TAC,
+temporales ni registros de activación. Se reutilizan las herramientas de
+análisis y presentación, mientras que el lenguaje, el catálogo y la
+ejecución de consultas son componentes propios de SQL.
+
+La validación actual comprende \textbf{117 pruebas de integración aprobadas}:
+76 casos clasificados como válidos y 41 errores esperados. Además de los
+requisitos funcionales, se verifican Unicode, precisión numérica,
+reapertura de archivos, acceso directo por índices y recuperación frente a
+fallos de escritura.
+
+\section{Objetivos}
+\subsection{Objetivo general}
+
+Desarrollar un sistema que interprete y ejecute el subconjunto SQL requerido
+por el enunciado sobre un mecanismo de almacenamiento propio, utilizando
+las etapas de análisis de un compilador para validar las sentencias antes
+de operar sobre archivos.
+
+\subsection{Objetivos específicos}
+\begin{itemize}
+  \item Definir una gramática SQL y generar el lexer y el parser con ANTLR.
+  \item Construir un AST independiente del árbol sintáctico concreto y
+        decorarlo con tipos y referencias de columnas.
+  \item Validar tablas, columnas, tipos, índices, restricciones y
+        subconsultas mediante diagnósticos con ubicación.
+  \item Implementar DDL, DML, consultas, JOIN, agregaciones y agrupación.
+  \item Persistir esquemas, tipos, registros e índices en archivos de texto
+        y mantenerlos consistentes ante modificaciones y fallos.
+  \item Usar índices en los predicados compatibles y leer directamente
+        las filas candidatas del CSV.
+  \item Integrar el pipeline en una interfaz que muestre tokens, árbol,
+        AST, errores, resultados y archivos de la base de datos.
+  \item Aportar pruebas reproducibles y evidencia visual de funcionamiento.
+\end{itemize}
+
+\section{Correspondencia con el enunciado}
+
+El enunciado organiza la entrega en ocho incrementos. La tabla siguiente
+relaciona cada uno con los componentes implementados y su forma de
+verificación. Los ejemplos ejecutables se encuentran en
+\path{backend/examples/sql/}.
+
+\begin{longtable}{@{}L{3.1cm}L{6.2cm}L{5.0cm}@{}}
+\toprule
+\textbf{Entrega} & \textbf{Implementación} & \textbf{Evidencia}\\
+\midrule\endfirsthead
+\toprule\textbf{Entrega} & \textbf{Implementación} & \textbf{Evidencia}\\
+\midrule\endhead
+1. Lexer y parser & \texttt{SQL.g4}, código ANTLR, clasificación de tokens y
+listeners propios. & Tokens y árbol; errores \texttt{LEX001}/\texttt{SYN001}.\\
+2. AST & \texttt{AstBuilder}, nodos de sentencias y expresiones,
+serialización independiente. & Pestaña AST y pruebas de precedencia.\\
+3. Semántica & Catálogo, ámbitos de consulta, tipos, restricciones y
+diagnósticos \texttt{SEM001}--\texttt{SEM020}. & Rechazo previo y
+ubicación de errores.\\
+4. CREATE, DROP, INSERT & Creación y eliminación de tablas; filas de
+\texttt{VALUES}; catálogo persistente. & Ejemplos 01 y 02; CSV y metadatos.\\
+5. SELECT y DML & Proyección, FROM, WHERE, AND/OR, ORDER BY, UPDATE y DELETE.
+& Ejemplos 03 y 04; resultados y archivos.\\
+6. JOIN y agregaciones & INNER JOIN, COUNT, SUM, AVG, MIN, MAX, GROUP BY y
+HAVING. & Ejemplo 05; verificaciones por grupo.\\
+7. Índices y subconsultas & CREATE/DROP INDEX; mantenimiento DML; IN/NOT IN,
+EXISTS/NOT EXISTS y subconsultas escalares. & Ejemplo 06; planes de acceso y
+reapertura.\\
+8. Integración & CLI JSON, adaptador Flask, IDE y batería de pruebas.
+& Interfaz ejecutable y 117 casos.\\
+\bottomrule
+\caption{Trazabilidad de los incrementos solicitados.}
+\end{longtable}
+
+\section{Arquitectura y reutilización}
+\subsection{Flujo de procesamiento}
+
+La función pública \texttt{runScript(source, options)} coordina las fases.
+\texttt{RunOptions} selecciona el archivo, la carpeta de almacenamiento y
+el modo de ejecución o de análisis. El mismo servicio atiende al CLI, las
+pruebas y el IDE.
+
+\begin{center}
+\fbox{\begin{minipage}{0.88\textwidth}
+\centering\small
+\textbf{Texto SQL}\par
+$\downarrow$\par
+\textbf{SQLLexer} $\rightarrow$ tokens y diagnósticos léxicos\par
+$\downarrow$\par
+\textbf{SQLParser} $\rightarrow$ árbol sintáctico concreto\par
+$\downarrow$\par
+\textbf{AstBuilder} $\rightarrow$ AST de sentencias y expresiones\par
+$\downarrow$\par
+\textbf{SemanticAnalyzer} $\leftrightarrow$ copia del catálogo\par
+$\downarrow$\par
+\textbf{Executor} $\leftrightarrow$ \textbf{Storage / FileTransaction}\par
+$\downarrow$\par
+\textbf{Archivos de texto y resultados}\par
+$\downarrow$\par
+JSON $\rightarrow$ Flask $\rightarrow$ IDE web
+\end{minipage}}
+\end{center}
+
+ANTLR proporciona los mecanismos para reconocer el lenguaje y recorrer
+sus árboles generados; las reglas de significado y ejecución pertenecen
+a la aplicación \cite{antlr,antlr-cpp}.
+
+Si existe un error léxico o sintáctico, se omiten la semántica y la
+ejecución. Si hay errores semánticos en cualquier sentencia del script,
+no se ejecuta ninguna. En modo análisis se construyen y validan las
+estructuras, pero no se ejecutan sentencias SQL.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}Yccc@{}}
+\toprule
+\textbf{Entrada} & \textbf{AST} & \textbf{Semántica} & \textbf{Ejecución}\\
+\midrule
+Error léxico o sintáctico & omitido & omitida & omitida\\
+Error semántico & disponible & rechazada & omitida\\
+Script válido, modo análisis & decorado & correcta & omitida\\
+Script válido, modo ejecución & decorado & correcta & habilitada\\
+\bottomrule
+\end{tabularx}
+\caption{Separación y omisión de fases del pipeline SQL.}
+\end{table}
+
+Un error que depende de los datos se reporta durante la interpretación.
+En ese caso se detiene el script: las sentencias anteriores ya confirmadas
+permanecen guardadas y las siguientes se omiten. Esta política se distingue
+de los errores semánticos, que se detectan antes de comenzar a ejecutar.
+
+\subsection{Qué se conserva y qué cambia respecto a Compiscript}
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{3.2cm}YY@{}}
+\toprule
+\textbf{Componente} & \textbf{Reutilización} & \textbf{Adaptación SQL}\\
+\midrule
+ANTLR y CMake & Runtime C++ y generación de código. & Nueva gramática y
+nuevas clases generadas.\\
+Diagnósticos & Listener que recoge errores y conserva ubicación. & Mensajes
+en español y códigos de las fases SQL.\\
+Árbol y JSON & Serialización de nodos y escape de cadenas. & AST, catálogo,
+resultados, planes y archivos.\\
+Servicio y CLI & Un núcleo independiente con salida JSON. & \texttt{--db},
+\texttt{--analyze}, \texttt{--catalog} y \texttt{--reset}.\\
+Flask e IDE & Editor, archivos, pestañas, visor SVG y reporte de pruebas.
+& Resultados SQL y explorador del almacenamiento.\\
+Semántica y ejecución & Separación entre reconocimiento y significado.
+& Catálogo relacional, consultas, índices y persistencia propios.\\
+\bottomrule
+\end{tabularx}
+\caption{Reutilización de infraestructura y componentes específicos de SQL.}
+\end{table}
+
+El módulo anterior permanece en \path{backend/compiscript/}. Su compilación
+es opcional con \texttt{BUILD\_COMPISCRIPT=ON}; el proyecto predeterminado
+compila el intérprete SQL. La existencia del código anterior en el
+repositorio no lo incorpora al pipeline de esta entrega.
+
+\subsection{Organización del núcleo}
+\begin{longtable}{@{}L{5.4cm}L{8.9cm}@{}}
+\toprule\textbf{Archivo o grupo} & \textbf{Responsabilidad}\\\midrule
+\endfirsthead
+\toprule\textbf{Archivo o grupo} & \textbf{Responsabilidad}\\\midrule\endhead
+\path{grammar/SQL.g4} & Definición del lexer y el parser.\\
+\path{generated/SQL*.cpp} & Reconocimiento generado por ANTLR.\\
+\path{ast.h}, \path{ast_builder.cpp} & Modelo del AST y Visitor que lo construye.\\
+\path{ast_serializer.cpp} & AST decorado en JSON para el visor del IDE.\\
+\path{semantic_analyzer.cpp} & Resolución de nombres, tipos y restricciones estáticas.\\
+\path{catalog.h/.cpp} & Esquemas, columnas, restricciones e índices.\\
+\path{value.h/.cpp} & Valores, comparación, conversión, fechas y Unicode.\\
+\path{executor.h/.cpp} & Interpretación de DDL, DML, consultas y expresiones.\\
+\path{storage.h/.cpp} & CSV, índices, posiciones, caché y bloqueo de archivos.\\
+\path{file_transaction.h/.cpp} & Preparación, respaldos, confirmación y recuperación.\\
+\path{service.cpp}, \path{main.cpp} & Orquestación y opciones del CLI.\\
+\path{json.cpp}, listeners y serializers & Contrato JSON, diagnósticos, tokens y árbol concreto.\\
+\bottomrule
+\caption{Componentes de \texttt{backend/sql/}; cabeceras en \texttt{include/sql/} y fuentes en \texttt{src/}.}
+\end{longtable}
+
+\section{Reconocimiento del lenguaje y construcción del AST}
+\subsection{Gramática SQL}
+
+La gramática combinada \texttt{SQL.g4} admite secuencias de sentencias
+separadas por punto y coma. Sus alternativas principales corresponden a
+\texttt{CREATE TABLE}, \texttt{DROP TABLE}, \texttt{CREATE INDEX},
+\texttt{DROP INDEX}, \texttt{INSERT}, \texttt{UPDATE}, \texttt{DELETE} y
+\texttt{SELECT}. Se permiten punto y coma final opcional, sentencias vacías
+y comentarios de línea o de bloque.
+
+La opción \texttt{caseInsensitive=true} hace que palabras reservadas e
+identificadores se reconozcan sin distinguir mayúsculas. El AST normaliza
+los nombres a minúsculas; el contenido de las cadenas conserva su texto.
+Los tokens reservados tienen prefijo \texttt{K\_}, por ejemplo
+\texttt{K\_SELECT} y \texttt{K\_NULL}, para evitar conflictos con macros de
+C/C++ y de Windows.
+
+Las reglas distinguen enteros, decimales, cadenas entre comillas simples,
+booleanos, NULL y literales DATE. En una cadena, la comilla simple se
+escapa duplicándola: \texttt{'O''Brien'}. Los comentarios \texttt{--} y
+\texttt{/* ... */} se descartan durante el análisis léxico.
+
+\subsection{Precedencia y árbol sintáctico concreto}
+
+Las alternativas de expresión establecen la precedencia de signos unarios,
+multiplicación y división, suma y resta, comparaciones, pruebas de NULL,
+pertenencia, NOT, AND y OR. Los paréntesis cambian la agrupación.
+Así, \texttt{2 + 3 * 4} produce 14 y \texttt{TRUE OR FALSE AND FALSE}
+produce TRUE.
+
+El parser construye el \emph{parse tree}, que conserva las reglas
+intermedias y los tokens de puntuación. \texttt{tree\_serializer} lo
+convierte en nodos con nombre, texto, categoría, línea, columna e hijos.
+Este árbol permite explicar cómo se reconoció una sentencia, pero no es
+la estructura que interpreta directamente el ejecutor.
+
+\subsection{AST y decoración semántica}
+
+\texttt{AstBuilder} deriva de \texttt{SQLBaseVisitor}. Cada alternativa
+crea nodos con significado y descarta comas, punto y coma y paréntesis de
+agrupación. Las sentencias se almacenan en un \texttt{std::variant}; las
+expresiones se distinguen por \texttt{ExprKind}.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{3.6cm}Y@{}}
+\toprule\textbf{Tipo de expresión} & \textbf{Ejemplos}\\\midrule
+Literal y columna & \texttt{18}, \texttt{'Ana'}, \texttt{TRUE}, \texttt{e.nombre}.\\
+Unaria y binaria & \texttt{-edad}, \texttt{NOT activo}, \texttt{edad >= 18}.\\
+Pruebas y pertenencia & \texttt{IS NULL}, \texttt{IN (...)}, \texttt{NOT IN (SELECT ...)}.\\
+Subconsulta & EXISTS y subconsulta escalar.\\
+Agregación & COUNT, SUM, AVG, MIN y MAX, con DISTINCT cuando corresponde.\\
+\bottomrule
+\end{tabularx}
+\caption{Familias de expresiones representadas en el AST.}
+\end{table}
+
+Para \texttt{SELECT nombre FROM estudiantes WHERE edad >= 18}, el AST
+contiene una proyección, una tabla y un predicado de comparación. La
+semántica agrega el tipo de cada expresión y, para las columnas, una
+posición \texttt{slot} en la fila combinada y una profundidad
+\texttt{depth}. El ejecutor consulta estas posiciones en lugar de volver
+a resolver cada nombre por texto.
+
+Los nodos conservan la ubicación y el fragmento fuente. Por ello el AST
+puede servir tanto para ejecutar como para presentar diagnósticos y
+explicar las decisiones en el IDE.
+
+\section{Análisis semántico y manejo de errores}
+\subsection{Catálogo y ámbitos de consulta}
+
+El catálogo sustituye a la tabla de símbolos de un lenguaje de programación
+general: describe tablas, columnas, tipos, restricciones e índices.
+\texttt{SemanticAnalyzer} trabaja con una copia del catálogo y procesa
+el script en orden. Un CREATE válido incorpora su esquema a esa copia,
+de modo que las sentencias siguientes pueden referirse a la tabla sin
+que todavía se haya escrito ningún archivo.
+
+Cada SELECT abre un ámbito con las columnas de FROM y de los JOIN ya
+incorporados. El predicado ON solo puede usar las tablas disponibles en
+ese punto. Un nombre sin calificador que coincide con varias columnas
+produce una referencia ambigua. Los alias distinguen las tablas y sus usos.
+
+En una subconsulta se abre otro ámbito. La búsqueda comienza en la
+consulta interior y continúa hacia los niveles externos. Si una columna
+se resuelve en un nivel exterior, se registra \texttt{depth > 0} y la
+subconsulta se marca como correlacionada.
+
+\subsection{Tipos, conversiones y restricciones}
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{2.8cm}Y@{}}
+\toprule\textbf{Tipo} & \textbf{Representación y validación}\\\midrule
+INT & Entero con signo de 64 bits; conversiones y operaciones comprobadas frente a desbordamientos.\\
+FLOAT & Punto flotante \texttt{double}; admite promoción desde INT y persistencia decimal que reconstruye el mismo valor binario.\\
+VARCHAR(n) & Texto UTF-8 con máximo de \(n\) puntos de código Unicode. Se preservan comillas, comas y saltos de línea.\\
+BOOLEAN & TRUE o FALSE; los operadores lógicos exigen operandos compatibles.\\
+DATE & Formato YYYY-MM-DD; comprueba mes, día y años bisiestos. Un literal de texto válido puede convertirse al asignar o comparar con DATE.\\
+\bottomrule
+\end{tabularx}
+\caption{Tipos mínimos solicitados y decisiones de implementación.}
+\end{table}
+
+NULL representa ausencia de valor y no constituye un sexto tipo de columna.
+Las comparaciones ordinarias con NULL producen un resultado desconocido;
+WHERE solo conserva filas cuyo predicado resulta TRUE. Se implementan
+AND y OR con lógica de tres valores y cortocircuito.
+
+Las restricciones adicionales incluyen PRIMARY KEY, NOT NULL, UNIQUE y
+FOREIGN KEY. Las referencias deben apuntar a columnas PRIMARY KEY o
+UNIQUE de tipo compatible. Se emplea la política RESTRICT para impedir
+borrar o cambiar una clave que otra tabla referencia.
+
+Las restricciones que dependen de valores almacenados se comprueban en
+ejecución. Por ejemplo, una columna puede ser válida en el esquema y,
+sin embargo, un INSERT fallar porque repite una clave o referencia un
+registro inexistente.
+
+\subsection{Códigos y ubicación de los diagnósticos}
+
+Los diagnósticos contienen código, categoría, severidad, mensaje, número de
+sentencia, línea y columna. Las posiciones se muestran al usuario desde 1.
+El IDE permite seleccionar un error para ir al punto correspondiente del
+editor. Los listeners propios sustituyen a los mensajes de consola de
+ANTLR y producen \texttt{LEX001} o \texttt{SYN001}.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{2.6cm}Y@{}}
+\toprule\textbf{Código} & \textbf{Validación semántica}\\\midrule
+SEM001--004 & Tabla inexistente; columna inexistente; referencia ambigua;
+tabla o alias inválido.\\
+SEM005--009 & Tipos incompatibles; cantidad incorrecta de valores; NULL u
+omisión en columna obligatoria; exceso de VARCHAR; fecha inválida.\\
+SEM010--012 & Tabla ya existente; columna duplicada; restricción inválida.\\
+SEM013--015 & Índice inexistente; índice duplicado; subconsulta IN o escalar
+con una cantidad de columnas distinta de una.\\
+SEM016--017 & Uso inválido de agregación o columna no agrupada; intento de
+eliminar una tabla referenciada.\\
+SEM018--020 & Literal fuera de rango; condición no booleana; posición de
+ORDER BY fuera del resultado.\\
+\bottomrule
+\end{tabularx}
+\caption{Agrupación de los veinte códigos semánticos implementados.}
+\end{table}
+
+Los errores de ejecución son \texttt{EXE001} (PRIMARY KEY), \texttt{EXE002}
+(UNIQUE), \texttt{EXE003} (FK sin padre), \texttt{EXE004} (registro
+referenciado), \texttt{EXE005} (subconsulta escalar con varias filas),
+\texttt{EXE006} (división entre cero), \texttt{EXE007} (valor o resultado
+fuera del tipo admitido) y \texttt{EXE008} (almacenamiento o bloqueo).
+
+Una subconsulta escalar con más de una columna se rechaza durante la
+semántica. Su cantidad de filas se comprueba al evaluarla, porque depende
+del contenido de la base y de sus predicados. Si retorna cero filas,
+su resultado escalar es NULL.
+
+\section{Diseño del almacenamiento en archivos}
+\subsection{Distribución de los archivos}
+
+\begin{archivo}
+database/
+  metadata.txt
+  estudiantes.csv
+  estudiantes.rows
+  cursos.csv
+  cursos.rows
+  indexes/
+    pk_estudiantes.idx
+    idx_estudiantes_edad.idx
+  .lock
+  .transaction/           (solo durante una confirmacion)
+\end{archivo}
+
+Todos los datos de la base son archivos de texto. \texttt{metadata.txt}
+describe los esquemas; cada tabla tiene un CSV; cada índice, un archivo
+\texttt{.idx}; y \texttt{.rows} relaciona los identificadores de fila con
+posiciones físicas en el CSV. El bloqueo y el diario son mecanismos de
+coordinación del almacenamiento, no un servicio de base de datos externo.
+
+\subsection{Catálogo: esquemas, tipos y restricciones}
+
+El catálogo utiliza instrucciones de texto por línea. Para cada tabla
+conserva el siguiente rowid libre y sus columnas con tipos y restricciones.
+Los índices se describen con su tabla, columna y propiedades.
+
+\begin{archivo}
+TABLE estudiantes
+  NEXT_ROWID 9
+  COLUMN id INT PRIMARY_KEY NOT_NULL
+  COLUMN nombre VARCHAR(50) NOT_NULL
+  COLUMN edad INT
+  COLUMN promedio FLOAT
+  COLUMN activo BOOLEAN
+  COLUMN ingreso DATE
+  COLUMN carrera_id INT REFERENCES carreras.id
+END
+
+INDEX pk_estudiantes ON estudiantes.id UNIQUE AUTO
+INDEX idx_estudiantes_edad ON estudiantes.edad
+\end{archivo}
+
+La marca AUTO identifica los índices creados por PRIMARY KEY o UNIQUE.
+No se permite eliminarlos mediante DROP INDEX, porque sostienen la
+restricción que los originó. El catálogo se lee al abrir la base y se
+serializa dentro de la misma confirmación que sus archivos afectados.
+
+\subsection{Registros CSV y valores especiales}
+
+Cada registro comienza con \texttt{\_\_rowid}, un identificador interno
+estable que no cambia cuando se eliminan otras filas. Los índices apuntan
+a este identificador y no al ordinal de la fila dentro del archivo.
+
+\begin{archivo}
+__rowid,id,nombre,edad,promedio,activo,ingreso,carrera_id
+1,1,"Ana López",20,91.5,TRUE,2023-01-15,1
+4,4,"Pedro Méndez",18,,TRUE,2024-01-10,
+\end{archivo}
+
+El fragmento anterior ilustra el formato. Todo texto se escribe entre
+comillas dobles y las comillas
+internas se duplican. Un campo vacío sin comillas representa NULL y
+\texttt{""} representa una cadena vacía. El lector respeta comas y saltos
+de línea dentro de campos entrecomillados.
+
+FLOAT se escribe mediante una representación decimal suficientemente
+precisa para reconstruir el mismo \texttt{double}. La conversión de
+entrada controla el rango y rechaza valores no finitos. VARCHAR cuenta
+puntos de código de UTF-8: por ejemplo, \texttt{José} ocupa cuatro
+caracteres y puede almacenarse en VARCHAR(4).
+
+\subsection{Posiciones de fila y lectura directa}
+
+Un índice entrega rowids. Para evitar recorrer el CSV hasta encontrarlos,
+el archivo \texttt{<tabla>.rows} conserva la posición y longitud de cada
+registro en bytes:
+
+\begin{archivo}
+ROWS 1 <tamano_del_csv_en_bytes>
+<rowid> <offset_en_bytes> <longitud_en_bytes>
+\end{archivo}
+
+\texttt{readRows} abre el archivo en modo binario, hace \texttt{seekg} a
+cada posición candidata y decodifica únicamente ese registro. Las
+posiciones incluyen la representación CSV completa, sus comillas y los
+saltos de línea internos; por eso se calculan al serializar la tabla.
+INSERT, UPDATE y DELETE confirman el CSV y sus nuevas posiciones juntos.
+
+Al abrir un directorio de posiciones se comprueban su versión, el tamaño
+del CSV y los límites de sus entradas. Una base antigua sin \texttt{.rows}
+sigue funcionando: se carga la tabla y se calculan las posiciones en
+memoria; la siguiente modificación las guarda en disco.
+
+\subsection{Confirmación, recuperación y concurrencia}
+
+Las modificaciones trabajan sobre copias de la tabla y sus índices.
+Superadas las restricciones, una sentencia prepara un conjunto de
+escrituras y eliminaciones. \texttt{FileTransaction} realiza estos pasos:
+
+\begin{enumerate}
+  \item Registra en un manifiesto todos los archivos afectados y si ya existían.
+  \item Respalda los originales y termina de escribir todos los temporales.
+        Se comprueba también el cierre de cada archivo.
+  \item Marca el diario como preparado y comienza a instalar los archivos.
+  \item Después de instalar todos los cambios, coloca el marcador de
+        confirmación mediante un renombrado.
+  \item Elimina los temporales y respaldos que ya no se necesitan.
+\end{enumerate}
+
+Si falla la preparación, ningún original se modifica. Si falla o se
+interrumpe la instalación, el diario permite restaurar los respaldos y
+eliminar archivos nuevos no confirmados. Al volver a abrir la base se
+recupera una operación pendiente antes de cargar el catálogo. Un diario
+marcado como confirmado solo necesita limpieza; no se revierte.
+
+Un bloqueo del sistema operativo protege la ejecución completa del CLI.
+Mientras otro proceso conserva el bloqueo, una nueva ejecución recibe
+\texttt{EXE008}; así no puede recuperar un diario que todavía está activo.
+El bloqueo se libera al cerrar el proceso, incluso tras una terminación
+inesperada.
+
+La unidad de confirmación es una sentencia, no el script completo. No se
+implementan transacciones SQL de varias sentencias ni durabilidad frente
+a cortes eléctricos mediante \texttt{fsync}. La recuperación descrita
+cubre errores de escritura e interrupciones del proceso.
+
+\section{Interpretación y ejecución de consultas}
+\subsection{DDL, INSERT, UPDATE y DELETE}
+
+CREATE TABLE genera el esquema, el CSV vacío, las posiciones y los índices
+automáticos. DROP TABLE elimina la entrada del catálogo y los archivos
+asociados, siempre que ninguna otra tabla la referencie. CREATE INDEX
+construye un índice a partir de los datos existentes; si es UNIQUE,
+rechaza claves repetidas antes de confirmarlo.
+
+INSERT evalúa cada fila de VALUES, convierte sus valores y comprueba
+NOT NULL, unicidad y claves foráneas. Las columnas omitidas reciben NULL
+cuando el esquema lo permite. Si cualquier fila falla, la sentencia
+entera se descarta.
+
+UPDATE localiza sus candidatos, evalúa todas las asignaciones sobre la
+fila original y valida los resultados. Retira primero las claves
+anteriores de los índices y luego incorpora las nuevas. Esto permite,
+por ejemplo, desplazar varias claves sin detectar duplicados transitorios
+que no existirán en el estado final.
+
+DELETE evalúa WHERE y verifica las referencias externas antes de retirar
+filas y entradas de índices. Los cambios se confirman junto con las
+posiciones físicas correspondientes.
+
+\subsection{Orden de evaluación de SELECT}
+
+El orden lógico implementado es el siguiente:
+
+\begin{archivo}
+FROM -> INNER JOIN -> WHERE
+     -> GROUP BY / agregaciones -> HAVING
+     -> proyeccion SELECT -> DISTINCT -> ORDER BY -> LIMIT
+\end{archivo}
+
+WHERE se evalúa sobre cada fila candidata, incluso cuando se utilizó un
+índice para reducir el conjunto. La proyección produce las expresiones
+solicitadas y expande \texttt{*} o \texttt{tabla.*} a columnas concretas.
+ORDER BY admite expresiones, alias de salida y posiciones válidas.
+
+\subsection{JOIN, agrupación y agregaciones}
+
+INNER JOIN combina las filas que cumplen ON. Si una columna indexada de
+la tabla derecha se compara con un valor ya conocido de la izquierda,
+se emplea un \emph{Index Nested Loop}; en otro caso se prueban las
+combinaciones mediante \emph{Nested Loop}. Cada unión amplía la fila
+combinada y conserva las posiciones resueltas durante la semántica.
+
+GROUP BY construye grupos por el valor de sus expresiones. COUNT(*) cuenta
+filas; COUNT(expr) cuenta valores no nulos. SUM y AVG exigen argumentos
+numéricos; MIN y MAX seleccionan extremos de tipos admitidos. Las
+agregaciones ignoran NULL en sus argumentos. Sin filas, COUNT produce 0
+y las demás agregaciones producen NULL.
+
+En una consulta agregada, las columnas fuera de funciones deben estar
+agrupadas. HAVING filtra grupos después de las agregaciones. Su presencia
+sin GROUP BY crea un grupo implícito, incluso sin funciones agregadas:
+\texttt{SELECT 1 HAVING FALSE;} devuelve cero filas.
+
+\subsection{Subconsultas y lógica de NULL}
+
+IN y NOT IN comparan una expresión con una lista o con la columna de una
+subconsulta. EXISTS y NOT EXISTS verifican si esta produce filas. Una
+subconsulta escalar debe tener una columna y, al evaluarse, como máximo
+una fila. Estos conceptos se contrastaron con documentación SQL pública
+como referencia semántica; esa consulta documental no incorpora ningún
+DBMS al programa \cite{subconsultas}.
+
+Las subconsultas no correlacionadas se calculan una vez por sentencia y
+se guardan en caché. Las correlacionadas usan las columnas externas y se
+reevalúan para cada contexto externo necesario. El plan registra la
+correlación, la cantidad de ejecuciones y el plan de la primera evaluación.
+
+Si IN no encuentra coincidencia y existe NULL en el conjunto, el resultado
+es desconocido. El conjunto vacío tiene un tratamiento distinto:
+\texttt{NULL IN (subconsulta vacía)} es FALSE y su negación es TRUE.
+Esta distinción evita perder filas con \texttt{NOT IN} cuando la
+subconsulta no produce resultados.
+
+\section{Índices y planificación del acceso}
+
+Cada índice se representa en memoria mediante un
+\texttt{std::map<Value, std::set<rowid>>}. Es una estructura ordenada con
+búsquedas logarítmicas sobre sus claves; no es un árbol B almacenado por
+páginas. El archivo \texttt{.idx} es texto ordenado y se carga cuando
+se necesita.
+
+\begin{archivo}
+# INDEX idx_estudiantes_edad ON estudiantes(edad)
+# valor,rowids (ordenado por valor)
+16,8
+17,2
+18,4
+19,5
+20,1
+21,7
+22,3
+25,6
+\end{archivo}
+
+Las claves NULL se omiten. Los comentarios pertenecen únicamente al
+encabezado: una línea que comienza con \texttt{\#} dentro de una cadena
+multilínea forma parte de la clave y debe conservarse.
+
+El planificador reconoce igualdades, IN no negado y comparaciones de rango,
+además de \texttt{<>}, cuando el otro operando puede evaluarse antes de
+leer la tabla objetivo. También aprovecha valores de tablas anteriores
+en un JOIN o de consultas externas.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{4.0cm}Y@{}}
+\toprule\textbf{Predicado} & \textbf{Acceso}\\\midrule
+\texttt{edad >= 18} & Busca las claves del rango y obtiene sus rowids.\\
+\texttt{id IN (1,3)} & Une los rowids encontrados para cada valor.\\
+\texttt{id = 1 OR id = 3} & Une ambos accesos si las dos ramas pueden usar índices.\\
+\texttt{id >= 2 AND edad >= 19} & Intersecta los accesos disponibles; evalúa el predicado completo al final.\\
+OR con una rama no indexable & Recorre la tabla para no excluir resultados de esa rama.\\
+\bottomrule
+\end{tabularx}
+\caption{Decisiones del planificador para predicados indexables.}
+\end{table}
+
+INSERT agrega claves, UPDATE retira las anteriores e incorpora las nuevas
+y DELETE elimina sus referencias. El archivo de posiciones permite
+traducir los rowids a lecturas directas del CSV. El mismo mecanismo se
+utiliza en los JOIN indexados.
+
+\subhead{Evidencia de lectura selectiva}
+La prueba de una consulta fría por PRIMARY KEY sobre estudiantes verifica
+que el almacenamiento decodifica una fila. Otra prueba combina tres
+tablas con filtros e índices y verifica tres filas leídas en total.
+No se comprueba únicamente la presencia de una etiqueta en el plan.
+
+El contador \texttt{database.reads.table\_rows} registra filas decodificadas
+por el almacenamiento. No equivale a tiempo de ejecución ni al total de
+bytes del sistema operativo: también se cargan las estructuras de índices
+y posiciones, y el explorador del IDE lee una vista previa acotada de
+los archivos. Las modificaciones continúan reescribiendo la tabla completa.
+
+\clearpage
+\section{Interfaz gráfica y evidencia de funcionamiento}
+
+El servidor Flask ejecuta \texttt{sql\_cli} con la carpeta de base de datos
+y el SQL recibido; devuelve al navegador el JSON del núcleo. Las rutas
+\texttt{/api/run}, \texttt{/api/database} y \texttt{/api/tests} conectan
+ejecución, inspección y pruebas. La separación entre rutas, plantillas y
+archivos estáticos sigue la organización habitual de Flask \cite{flask}.
+
+Las capturas siguientes proceden de la aplicación real, ejecutada con
+una base de demostración aislada. Se cargaron los ejemplos 01 y 02 y se
+crearon los índices de edad y estudiante de inscripción. Los datos
+contienen 3 carreras, 8 estudiantes, 6 cursos y 13 inscripciones.
+Las imágenes muestran detalles de los paneles, con zoom para facilitar
+su lectura; no son maquetas.
+
+\subsection{Consulta filtrada y plan de ejecución}
+
+La consulta del enunciado se amplió para mostrar edad y ordenar el
+resultado. Devuelve seis estudiantes: Pedro (18), María (19), Ana (20),
+Lucía (21), Sofía (22) y Jorge (25). El plan utiliza
+\texttt{idx\_estudiantes\_edad} y el contador registra seis filas
+decodificadas de las ocho existentes.
+
+\captura{general.png}{SELECT con WHERE, ORDER BY, resultados y acceso por índice de edad.}{fig:consulta}
+
+\clearpage
+\subsection{Tokens}
+
+La tabla de tokens expone categoría, tipo ANTLR, texto y ubicación. Permite
+verificar que una palabra reservada, un identificador o un operador
+llegaron correctamente al parser.
+
+\captura{tokens.png}{Tokens de la consulta SELECT nombre FROM estudiantes WHERE edad >= 18.}{fig:tokens}
+
+\clearpage
+\subsection{Árbol sintáctico concreto}
+
+El árbol sintáctico conserva las reglas de la gramática y sus hojas.
+El visor permite expandir, contraer y cambiar el zoom para recorrer
+la estructura reconocida por ANTLR.
+
+\captura{arbol.png}{Árbol sintáctico concreto de una consulta, en modo de análisis.}{fig:arbol}
+
+\clearpage
+\subsection{AST visible y tipos resueltos}
+
+El AST representa la misma entrada mediante SELECT, proyección, FROM y
+WHERE. Las columnas ya muestran sus tipos. Esta vista permite relacionar
+la consulta escrita con la estructura utilizada por la semántica y el
+intérprete, sin los niveles auxiliares del árbol concreto.
+
+\captura{ast.png}{AST decorado con la proyección, la tabla y el predicado de comparación.}{fig:ast}
+
+\clearpage
+\subsection{JOIN, agregaciones y HAVING}
+
+La consulta une cursos e inscripciones, cuenta las inscripciones por
+curso y calcula la nota máxima. HAVING conserva los cursos con al menos
+dos inscripciones; ORDER BY utiliza el alias del conteo. Se obtienen
+cinco grupos. Cálculo tiene cuatro inscripciones y Compiladores tres.
+
+\captura{join.png}{INNER JOIN con COUNT, MAX, GROUP BY, HAVING y ORDER BY.}{fig:join}
+
+\clearpage
+\subsection{Subconsultas con IN}
+
+El ejemplo con IN retorna a Ana López, Luis Pérez, María García y Sofía
+Castillo: sus identificadores aparecen entre las inscripciones del
+curso 3. La subconsulta se calcula una vez y sus valores se buscan en
+el índice de la PRIMARY KEY de estudiantes.
+
+\begin{sqlcode}
+SELECT nombre
+FROM estudiantes
+WHERE id IN (SELECT estudiante_id
+             FROM inscripciones WHERE curso_id = 3)
+ORDER BY nombre;
+\end{sqlcode}
+
+\captura{in.png}{IN con SELECT anidado y acceso al índice de estudiantes.}{fig:in}
+
+\clearpage
+\subsection{EXISTS correlacionado y subconsulta escalar}
+
+En el caso correlacionado se buscan estudiantes con alguna nota de al
+menos 95. Solo Lucía Herrera cumple. La subconsulta usa \texttt{e.id}
+del contexto externo y el plan registra ocho evaluaciones, una por
+estudiante, con búsquedas por el índice de inscripciones.
+
+\captura{exists.png}{EXISTS correlacionado con una referencia a la fila externa.}{fig:exists}
+
+La variante escalar compara el promedio individual con el promedio global
+de 82.75. Devuelve Lucía (95), Ana (91.5), María (88) y Sofía (85.25).
+El código y el resultado reproducible de esta variante se incluyen en
+\path{evidencia/sql/escalar.sql} y
+\path{evidencia/consultas-resultados.json}.
+
+\clearpage
+\subsection{Catálogo e índices persistidos}
+
+La pestaña Base de datos muestra las columnas, restricciones, cantidad
+de filas e índices de cada tabla, junto con el contenido de los archivos.
+El archivo elegido en la figura siguiente es el índice de edad: sus
+claves y rowids corresponden al ejemplo descrito en el diseño.
+
+\captura{indice.png}{Explorador del almacenamiento con el contenido real de un índice .idx.}{fig:indice}
+
+\clearpage
+\subsection{Rechazo de entradas inválidas}
+
+La primera captura reúne tres errores estáticos independientes: una tabla
+inexistente, una columna inexistente y un valor de INSERT incompatible.
+El script no se ejecuta. La segunda muestra un error que depende de la
+evaluación: división entre cero, reportada como \texttt{EXE006}.
+
+\captura{semantica.png}{Errores semánticos con código, sentencia y ubicación en el editor.}{fig:semantica}
+\captura{ejecucion.png}{Error de ejecución por división entre cero.}{fig:ejecucion}
+
+\clearpage
+\section{Pruebas y resultados de validación}
+\subsection{Metodología}
+
+\texttt{sql\_tests} invoca el mismo servicio C++ que utiliza el IDE. Cada
+caso tiene una carpeta temporal aislada; cuando corresponde, se carga un
+esquema de ejemplo. La verificación compara filas, tipos, diagnósticos,
+planes, contadores y contenido de archivos. Algunos casos realizan una
+segunda ejecución para comprobar persistencia.
+
+Un error esperado aprueba cuando el intérprete rechaza la entrada con
+el código requerido. El total de 76 casos válidos corresponde a la
+clasificación del reporte: incluye también verificaciones de omisión de
+fases y de recuperación que examinan respuestas fallidas deliberadas.
+Los 41 errores esperados no son fallos del sistema.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}Yrr@{}}
+\toprule\textbf{Categoría} & \textbf{Casos} & \textbf{Aprobados}\\\midrule
+Lexer y parser & 7 & 7\\
+AST & 4 & 4\\
+Análisis semántico & 26 & 26\\
+CREATE, DROP e INSERT & 10 & 10\\
+SELECT, WHERE, UPDATE y DELETE & 12 & 12\\
+JOIN, agregaciones y GROUP BY & 7 & 7\\
+Índices & 10 & 10\\
+Subconsultas & 7 & 7\\
+Almacenamiento en archivos & 3 & 3\\
+Regresiones de robustez & 31 & 31\\\midrule
+\textbf{Total} & \textbf{117} & \textbf{117}\\
+\bottomrule
+\end{tabularx}
+\caption{Resultados de la batería ejecutada para esta versión del informe.}
+\end{table}
+
+\subsection{Regresiones incorporadas}
+
+Las 31 regresiones adicionales se organizan en dos conjuntos: 16 casos
+de tipos, expresiones y texto indexado; y 15 de planificación,
+almacenamiento, recuperación y concurrencia. Entre las verificaciones
+principales se encuentran las siguientes:
+
+\begin{itemize}
+  \item VARCHAR con acentos y caracteres de varios bytes, tanto en
+        validación semántica como en valores calculados por UPDATE.
+  \item Literales FLOAT fuera de rango, valores subnormales, precisión
+        después de reabrir y desbordamientos de aritmética y SUM.
+  \item HAVING con grupo implícito y NULL frente a subconsultas vacías.
+  \item Claves indexadas con saltos de línea, líneas vacías y \texttt{\#}.
+  \item Unión e intersección de índices y recorrido correcto de un OR con
+        una rama no indexable.
+  \item Filas efectivamente decodificadas y actualización de posiciones
+        tras INSERT, UPDATE y DELETE.
+  \item Errores de escritura durante INSERT, UPDATE, CREATE y DROP sin
+        confirmar cambios parciales.
+  \item Recuperación de una instalación interrumpida y conservación de
+        una confirmación terminada cuyo diario requiere limpieza.
+  \item Rechazo de una segunda ejecución sobre una base bloqueada.
+\end{itemize}
+
+También se ejecutó la batería con AddressSanitizer y
+UndefinedBehaviorSanitizer: los 117 casos aprobaron sin diagnósticos de
+esas herramientas. Esta comprobación complementa las pruebas funcionales;
+no constituye una demostración de ausencia de errores en entradas no
+cubiertas.
+
+\captura{pruebas.png}{Reporte de la batería del intérprete SQL: 117 aprobadas y cero fallos reales.}{fig:pruebas}
+
+\subsection{Evidencia reproducible}
+
+La carpeta del informe conserva \path{evidencia/pruebas.json}, con el
+reporte íntegro, y \path{evidencia/consultas-resultados.json}, con SQL,
+resultados, diagnósticos, planes y contadores de las demostraciones.
+\path{evidencia/sql/00_preparar_base.sql} reproduce el esquema, los datos
+y los índices usados en las capturas. Cada consulta dispone de un archivo
+SQL independiente para que las demostraciones de error no impidan ejecutar
+las consultas válidas.
+
+\section{Trazabilidad del desarrollo}
+
+La rama del proyecto contiene seis commits de implementación inicial y
+seis de refuerzo. En conjunto, los doce commits descritos tienen una
+distribución de seis por integrante. Las identidades coinciden con las
+utilizadas en las entregas anteriores.
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}L{2.5cm}L{5.4cm}Y@{}}
+\toprule\textbf{Usuario} & \textbf{Correo} & \textbf{Integrante}\\\midrule
+\texttt{G1LB3T0} & \texttt{luis.yo09@hotmail.com} & Luis Gonzalez, 23353\\
+\texttt{jaq23369} & \texttt{jaq23369@uvg.edu.gt} & Joel Jaquez, 23369\\
+\bottomrule
+\end{tabularx}
+\caption{Identidades registradas en Git.}
+\end{table}
+
+\begin{longtable}{@{}L{1.8cm}L{2.3cm}L{10.2cm}@{}}
+\toprule\textbf{Commit} & \textbf{Autor} & \textbf{Aporte}\\\midrule\endfirsthead
+\toprule\textbf{Commit} & \textbf{Autor} & \textbf{Aporte}\\\midrule\endhead
+\texttt{68ae80c} & G1LB3T0 & Gramática SQL y generación del parser ANTLR.\\
+\texttt{0426696} & jaq23369 & Construcción del AST y análisis semántico SQL.\\
+\texttt{2016eb1} & G1LB3T0 & Almacenamiento en archivos, intérprete e integración del CLI.\\
+\texttt{f0ad7c3} & G1LB3T0 & Batería inicial de 86 pruebas de integración.\\
+\texttt{ef55839} & jaq23369 & Adaptación del IDE, endpoints y ejemplos SQL.\\
+\texttt{510c384} & jaq23369 & Guía de arquitectura, reutilización y defensa.\\
+\texttt{2f7be06} & G1LB3T0 & Unicode, tipos numéricos, HAVING y condiciones con NULL.\\
+\texttt{bdd28f8} & jaq23369 & Confirmación conjunta, recuperación y bloqueo de archivos.\\
+\texttt{10056ad} & G1LB3T0 & Acceso por posiciones y combinación de índices.\\
+\texttt{23b9d6b} & jaq23369 & Dieciséis regresiones de tipos y expresiones.\\
+\texttt{c0a4b01} & G1LB3T0 & Quince regresiones de acceso, disco y recuperación; 117 casos.\\
+\texttt{037ac10} & jaq23369 & Documentación del almacenamiento y de su validación.\\
+\bottomrule
+\caption{Historial funcional del proyecto SQL, en orden cronológico.}
+\end{longtable}
+
+\section{Compilación y ejecución}
+
+Se requiere un compilador C++17, CMake 3.20 o superior, Java para generar
+ANTLR y Python con Flask para el IDE. Los archivos C++ generados ya están
+en el repositorio; los scripts de construcción también permiten
+regenerarlos desde la gramática.
+
+\begin{archivo}
+# macOS o Linux
+./scripts/build_sql.sh
+
+# Windows (PowerShell)
+.\scripts\build_sql.ps1
+
+# Pruebas de integracion
+ctest --test-dir build/sql --output-on-failure
+
+# Ejecucion desde consola
+./sql_cli --db database --file ejemplo.sql
+./sql_cli --db database --analyze --file ejemplo.sql
+./sql_cli --db database --catalog
+
+# IDE
+python3 app.py
+# Abrir http://127.0.0.1:5050
+\end{archivo}
+
+Si el runtime de ANTLR ya se encuentra descargado, la variable
+\texttt{ANTLR4\_LOCAL\_SOURCE} permite construir sin volver a descargarlo.
+El CLI devuelve un documento JSON y utiliza código de salida 0 para
+éxito, 1 para errores del pipeline y 2 para problemas de uso o lectura
+de la entrada.
+
+Para reproducir las figuras en otra base de datos se recomienda utilizar
+una carpeta nueva y ejecutar primero el script de preparación de
+\texttt{evidencia/sql/}. Los scripts de error deben ejecutarse por
+separado, puesto que un error semántico impide ejecutar todo su script.
+
+\section{Alcance, límites y mejoras futuras}
+
+El proyecto implementa un subconjunto SQL orientado a los requisitos del
+curso. Sus límites deben diferenciarse de los comportamientos comprobados:
+
+\begin{itemize}
+  \item Se implementa INNER JOIN. No se incluyen LEFT JOIN, consultas
+        UNION, vistas ni procedimientos almacenados.
+  \item Los índices, las claves primarias y las claves foráneas son de
+        una columna. No hay un índice B+ por páginas ni un optimizador
+        basado en estimaciones de costo.
+  \item Los índices y las posiciones se cargan en memoria. Las lecturas
+        indexadas del CSV son selectivas; los recorridos completos y las
+        modificaciones cargan la tabla y pueden reescribirla completa.
+  \item La colación de texto es binaria. VARCHAR mide puntos de código,
+        sin normalización Unicode ni conteo de grafemas compuestos.
+  \item Las claves foráneas utilizan RESTRICT; no se implementa CASCADE.
+  \item La confirmación cubre una sentencia. No hay BEGIN/COMMIT SQL de
+        varias sentencias ni garantía frente a cortes eléctricos con fsync.
+  \item El bloqueo exclusivo evita ejecuciones simultáneas sobre la misma
+        carpeta; no ofrece concurrencia de múltiples lectores y escritores.
+\end{itemize}
+
+Como evolución, sería posible incorporar índices compuestos y por páginas,
+actualización localizada de registros, planificación por costo y un
+protocolo de durabilidad con sincronización de archivos. Estas mejoras
+no forman parte de los resultados afirmados por esta entrega.
+
+\section{Conclusiones}
+
+\begin{enumerate}
+  \item Las técnicas de construcción de compiladores permiten interpretar
+        un lenguaje de consultas completo dentro del alcance del curso:
+        reconocimiento, AST, resolución semántica e interpretación quedan
+        separados y son observables en la interfaz.
+  \item El almacenamiento propio representa esquemas, tipos, restricciones,
+        filas e índices mediante archivos de texto. El catálogo permite
+        validar el SQL y el diario mantiene la coherencia de las
+        modificaciones ante los fallos cubiertos.
+  \item Los índices se utilizan para obtener candidatos y las posiciones
+        persistidas permiten leerlos directamente del CSV. La decisión de
+        acceso se comprueba con resultados y contadores de filas, además
+        del plan mostrado al usuario.
+  \item La reutilización de ANTLR, el contrato JSON, Flask y el visor del
+        IDE permitió concentrar el trabajo nuevo en el lenguaje SQL y su
+        ejecución. El resultado cumple un flujo de interpretación distinto
+        de la generación de código intermedio de Compiscript.
+  \item Las 117 pruebas y las demostraciones reproducibles aportan evidencia
+        del comportamiento funcional y de los casos límite examinados.
+        La interfaz y el informe permiten seguir una sentencia desde sus
+        tokens hasta los resultados o los archivos modificados.
+\end{enumerate}
+
+\begin{thebibliography}{9}
+\raggedright
+\bibitem{enunciado}
+Construcción de Compiladores. \emph{Proyecto 2.1: Intérprete SQL con
+Almacenamiento en Archivos}. Enunciado del curso, septiembre de 2026.
+
+\bibitem{antlr}
+ANTLR. \emph{ANTLR: herramienta de reconocimiento de lenguajes}.
+\url{https://www.antlr.org/}. Consulta: 31 de octubre de 2026.
+
+\bibitem{antlr-cpp}
+ANTLR. \emph{The C++ Target}. Documentación del proyecto.
+\url{https://github.com/antlr/antlr4/blob/dev/doc/cpp-target.md}.
+Consulta: 31 de octubre de 2026.
+
+\bibitem{flask}
+Pallets Projects. \emph{Flask: Quickstart}.
+\url{https://flask.palletsprojects.com/en/stable/quickstart/}.
+Consulta: 31 de octubre de 2026.
+
+\bibitem{subconsultas}
+PostgreSQL Global Development Group. \emph{Subquery Expressions}.
+Referencia documental sobre EXISTS, IN y NOT IN.
+\url{https://www.postgresql.org/docs/current/functions-subquery.html}.
+Consulta: 31 de octubre de 2026. No se utiliza PostgreSQL en el sistema.
+
+\bibitem{repositorio}
+Gonzalez, L. y Jaquez, J. \emph{Intérprete SQL}, rama
+\texttt{Compiladores2-Proyecto3}, versión \texttt{037ac10}.
+\url{https://github.com/G1LB3T0/Proyecto1_Compis_Generador_Analizador_Lexico/tree/Compiladores2-Proyecto3}.
+Fuentes, ejemplos, pruebas y \path{docs/proyecto3-interprete-sql.md}.
+\end{thebibliography}
+\end{document}

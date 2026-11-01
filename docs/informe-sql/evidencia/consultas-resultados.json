@@ -1,0 +1,685 @@
+{
+  "general": {
+    "source": "SELECT nombre, edad\nFROM estudiantes\nWHERE edad >= 18\nORDER BY edad;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre, edad\nFROM estudiantes\nWHERE edad >= 18\nORDER BY edad",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "6 registros en el resultado.",
+        "columns": [
+          "nombre",
+          "edad"
+        ],
+        "column_types": [
+          "VARCHAR(50)",
+          "INT"
+        ],
+        "affected": 6,
+        "plan": [
+          "Index Scan en estudiantes usando idx_estudiantes_edad (edad >= 18): se leyeron 6 registros de 8 mediante posiciones directas (o caché), sin recorrer la tabla.",
+          "WHERE: 6 filas cumplen la condición."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Pedro Méndez",
+            "18"
+          ],
+          [
+            "María García",
+            "19"
+          ],
+          [
+            "Ana López",
+            "20"
+          ],
+          [
+            "Lucía Herrera",
+            "21"
+          ],
+          [
+            "Sofía Castillo",
+            "22"
+          ],
+          [
+            "Jorge Ruiz",
+            "25"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 6,
+      "table_bytes": 272
+    }
+  },
+  "tokens": {
+    "source": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "6 registros en el resultado.",
+        "columns": [
+          "nombre"
+        ],
+        "column_types": [
+          "VARCHAR(50)"
+        ],
+        "affected": 6,
+        "plan": [
+          "Index Scan en estudiantes usando idx_estudiantes_edad (edad >= 18): se leyeron 6 registros de 8 mediante posiciones directas (o caché), sin recorrer la tabla.",
+          "WHERE: 6 filas cumplen la condición."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Ana López"
+          ],
+          [
+            "Sofía Castillo"
+          ],
+          [
+            "Pedro Méndez"
+          ],
+          [
+            "María García"
+          ],
+          [
+            "Jorge Ruiz"
+          ],
+          [
+            "Lucía Herrera"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 6,
+      "table_bytes": 272
+    }
+  },
+  "arbol": {
+    "source": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": false,
+      "execution_skipped": true,
+      "execution_reason": "Modo análisis: se validó el script sin ejecutarlo ni modificar los archivos."
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18",
+        "line": 1,
+        "column": 1,
+        "status": "analizada",
+        "message": "Semánticamente válida.",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [],
+        "files": [],
+        "rows": []
+      }
+    ],
+    "reads": {
+      "table_rows": 0,
+      "table_bytes": 0
+    }
+  },
+  "ast": {
+    "source": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": false,
+      "execution_skipped": true,
+      "execution_reason": "Modo análisis: se validó el script sin ejecutarlo ni modificar los archivos."
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre\nFROM estudiantes\nWHERE edad >= 18",
+        "line": 1,
+        "column": 1,
+        "status": "analizada",
+        "message": "Semánticamente válida.",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [],
+        "files": [],
+        "rows": []
+      }
+    ],
+    "reads": {
+      "table_rows": 0,
+      "table_bytes": 0
+    }
+  },
+  "join": {
+    "source": "SELECT c.nombre AS curso, COUNT(*) AS inscritos,\n       MAX(i.nota) AS nota_maxima\nFROM cursos c INNER JOIN inscripciones i ON c.id = i.curso_id\nGROUP BY c.nombre\nHAVING COUNT(*) >= 2\nORDER BY inscritos DESC, curso;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT c.nombre AS curso, COUNT(*) AS inscritos,\n       MAX(i.nota) AS nota_maxima\nFROM cursos c INNER JOIN inscripciones i ON c.id = i.curso_id\nGROUP BY c.nombre\nHAVING COUNT(*) >= 2\nORDER BY inscritos DESC, curso",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "5 registros en el resultado.",
+        "columns": [
+          "curso",
+          "inscritos",
+          "nota_maxima"
+        ],
+        "column_types": [
+          "VARCHAR(60)",
+          "INT",
+          "FLOAT"
+        ],
+        "affected": 5,
+        "plan": [
+          "Full Scan en cursos: se leyeron los 6 registros.",
+          "INNER JOIN inscripciones: Nested Loop, 6 × 13 = 78 combinaciones evaluadas → 13 filas.",
+          "GROUP BY: 5 grupos, 5 cumplen HAVING."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Cálculo",
+            "4",
+            "88.5"
+          ],
+          [
+            "Compiladores",
+            "3",
+            "97.0"
+          ],
+          [
+            "Bases de Datos",
+            "2",
+            "96.5"
+          ],
+          [
+            "Robótica",
+            "2",
+            "75.0"
+          ],
+          [
+            "Álgebra Lineal",
+            "2",
+            "91.0"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 19,
+      "table_bytes": 509
+    }
+  },
+  "in": {
+    "source": "SELECT nombre\nFROM estudiantes\nWHERE id IN (SELECT estudiante_id\n             FROM inscripciones WHERE curso_id = 3)\nORDER BY nombre;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre\nFROM estudiantes\nWHERE id IN (SELECT estudiante_id\n             FROM inscripciones WHERE curso_id = 3)\nORDER BY nombre",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "4 registros en el resultado.",
+        "columns": [
+          "nombre"
+        ],
+        "column_types": [
+          "VARCHAR(50)"
+        ],
+        "affected": 4,
+        "plan": [
+          "Index Scan en estudiantes usando pk_estudiantes (id IN (SELECT estudiante_id FROM inscripciones WHERE curso_id = 3)): se leyeron 4 registros de 8 mediante posiciones directas (o caché), sin recorrer la tabla.",
+          "WHERE: 4 filas cumplen la condición.",
+          "Subconsulta (línea 3): no correlacionada, se ejecutó 1 vez y su resultado se reutilizó",
+          "   └ Full Scan en inscripciones: se leyeron los 13 registros.",
+          "   └ WHERE: 4 filas cumplen la condición."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Ana López"
+          ],
+          [
+            "Luis Pérez"
+          ],
+          [
+            "María García"
+          ],
+          [
+            "Sofía Castillo"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 17,
+      "table_bytes": 545
+    }
+  },
+  "exists": {
+    "source": "SELECT e.nombre\nFROM estudiantes e\nWHERE EXISTS (SELECT 1 FROM inscripciones i\n              WHERE i.estudiante_id = e.id AND i.nota >= 95);",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT e.nombre\nFROM estudiantes e\nWHERE EXISTS (SELECT 1 FROM inscripciones i\n              WHERE i.estudiante_id = e.id AND i.nota >= 95)",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "1 registro en el resultado.",
+        "columns": [
+          "nombre"
+        ],
+        "column_types": [
+          "VARCHAR(50)"
+        ],
+        "affected": 1,
+        "plan": [
+          "Full Scan en estudiantes: se leyeron los 8 registros.",
+          "WHERE: 1 fila cumple la condición.",
+          "Subconsulta (línea 3): correlacionada, se ejecutó 8 veces (una por fila externa)",
+          "   └ plan de la primera ejecución:",
+          "   └ Index Scan en inscripciones usando idx_inscripciones_estudiante (i.estudiante_id = e.id): se leyeron 3 registros de 13 mediante posiciones directas (o caché), sin recorrer la tabla.",
+          "   └ WHERE: 0 filas cumplen la condición."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Lucía Herrera"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 21,
+      "table_bytes": 736
+    }
+  },
+  "escalar": {
+    "source": "SELECT nombre, promedio\nFROM estudiantes\nWHERE promedio > (SELECT AVG(promedio) FROM estudiantes)\nORDER BY promedio DESC;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre, promedio\nFROM estudiantes\nWHERE promedio > (SELECT AVG(promedio) FROM estudiantes)\nORDER BY promedio DESC",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "4 registros en el resultado.",
+        "columns": [
+          "nombre",
+          "promedio"
+        ],
+        "column_types": [
+          "VARCHAR(50)",
+          "FLOAT"
+        ],
+        "affected": 4,
+        "plan": [
+          "Full Scan en estudiantes: se leyeron los 8 registros.",
+          "WHERE: 4 filas cumplen la condición.",
+          "Subconsulta (línea 3): no correlacionada, se ejecutó 1 vez y su resultado se reutilizó",
+          "   └ Full Scan en estudiantes: se leyeron los 8 registros.",
+          "   └ Agregación sobre 8 filas (un solo grupo)."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Lucía Herrera",
+            "95.0"
+          ],
+          [
+            "Ana López",
+            "91.5"
+          ],
+          [
+            "María García",
+            "88.0"
+          ],
+          [
+            "Sofía Castillo",
+            "85.25"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 8,
+      "table_bytes": 420
+    }
+  },
+  "catalogo": {
+    "source": "SELECT COUNT(*) AS estudiantes FROM estudiantes;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT COUNT(*) AS estudiantes FROM estudiantes",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "1 registro en el resultado.",
+        "columns": [
+          "estudiantes"
+        ],
+        "column_types": [
+          "INT"
+        ],
+        "affected": 1,
+        "plan": [
+          "Full Scan en estudiantes: se leyeron los 8 registros.",
+          "Agregación sobre 8 filas (un solo grupo)."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "8"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 8,
+      "table_bytes": 420
+    }
+  },
+  "indice": {
+    "source": "SELECT nombre FROM estudiantes WHERE edad >= 21;",
+    "ok": true,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": true,
+      "execution_skipped": false,
+      "execution_reason": ""
+    },
+    "diagnostics": [],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre FROM estudiantes WHERE edad >= 21",
+        "line": 1,
+        "column": 1,
+        "status": "ok",
+        "message": "3 registros en el resultado.",
+        "columns": [
+          "nombre"
+        ],
+        "column_types": [
+          "VARCHAR(50)"
+        ],
+        "affected": 3,
+        "plan": [
+          "Index Scan en estudiantes usando idx_estudiantes_edad (edad >= 21): se leyeron 3 registros de 8 mediante posiciones directas (o caché), sin recorrer la tabla.",
+          "WHERE: 3 filas cumplen la condición."
+        ],
+        "files": [],
+        "rows": [
+          [
+            "Sofía Castillo"
+          ],
+          [
+            "Jorge Ruiz"
+          ],
+          [
+            "Lucía Herrera"
+          ]
+        ]
+      }
+    ],
+    "reads": {
+      "table_rows": 3,
+      "table_bytes": 141
+    }
+  },
+  "semantica": {
+    "source": "SELECT nombre FROM alumnos;\nSELECT apellido FROM estudiantes;\nINSERT INTO cursos VALUES ('nueve', 'Logica', 3);",
+    "ok": false,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": false,
+      "semantic_skipped": false,
+      "execution": false,
+      "execution_skipped": true,
+      "execution_reason": "La ejecución se omitió porque existen errores semánticos; ningún archivo fue modificado."
+    },
+    "diagnostics": [
+      {
+        "code": "SEM001",
+        "category": "semántico",
+        "severity": "error",
+        "message": "La tabla alumnos no existe.",
+        "line": 1,
+        "column": 20,
+        "statement": 1
+      },
+      {
+        "code": "SEM002",
+        "category": "semántico",
+        "severity": "error",
+        "message": "La columna apellido no existe en las tablas de la consulta.",
+        "line": 2,
+        "column": 8,
+        "statement": 2
+      },
+      {
+        "code": "SEM005",
+        "category": "semántico",
+        "severity": "error",
+        "message": "Tipos incompatibles: no se puede asignar VARCHAR(5) a la columna id (INT).",
+        "line": 3,
+        "column": 28,
+        "statement": 3
+      }
+    ],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT nombre FROM alumnos",
+        "line": 1,
+        "column": 1,
+        "status": "error",
+        "message": "La tabla alumnos no existe.",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [],
+        "files": [],
+        "rows": []
+      },
+      {
+        "index": 2,
+        "kind": "SELECT",
+        "sql": "SELECT apellido FROM estudiantes",
+        "line": 2,
+        "column": 1,
+        "status": "error",
+        "message": "La columna apellido no existe en las tablas de la consulta.",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [],
+        "files": [],
+        "rows": []
+      },
+      {
+        "index": 3,
+        "kind": "INSERT",
+        "sql": "INSERT INTO cursos VALUES ('nueve', 'Logica', 3)",
+        "line": 3,
+        "column": 1,
+        "status": "error",
+        "message": "Tipos incompatibles: no se puede asignar VARCHAR(5) a la columna id (INT).",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [],
+        "files": [],
+        "rows": []
+      }
+    ],
+    "reads": {
+      "table_rows": 0,
+      "table_bytes": 0
+    }
+  },
+  "ejecucion": {
+    "source": "SELECT edad / 0 AS resultado\nFROM estudiantes;",
+    "ok": false,
+    "phases": {
+      "lexical": true,
+      "syntax": true,
+      "semantic": true,
+      "semantic_skipped": false,
+      "execution": false,
+      "execution_skipped": false,
+      "execution_reason": "La ejecución se detuvo en la primera sentencia con error; las anteriores ya fueron guardadas."
+    },
+    "diagnostics": [
+      {
+        "code": "EXE006",
+        "category": "ejecución",
+        "severity": "error",
+        "message": "División entre cero en 'edad / 0'.",
+        "line": 1,
+        "column": 8,
+        "statement": 1
+      }
+    ],
+    "statements": [
+      {
+        "index": 1,
+        "kind": "SELECT",
+        "sql": "SELECT edad / 0 AS resultado\nFROM estudiantes",
+        "line": 1,
+        "column": 1,
+        "status": "error",
+        "message": "División entre cero en 'edad / 0'.",
+        "columns": [],
+        "column_types": [],
+        "affected": 0,
+        "plan": [
+          "Full Scan en estudiantes: se leyeron los 8 registros."
+        ],
+        "files": [],
+        "rows": []
+      }
+    ],
+    "reads": {
+      "table_rows": 0,
+      "table_bytes": 0
+    }
+  }
+}

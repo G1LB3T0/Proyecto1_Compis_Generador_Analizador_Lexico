@@ -1,0 +1,38 @@
+{
+  "fecha": "2026-10-31",
+  "version_codigo": "037ac10",
+  "paginas_pdf": 29,
+  "pruebas": {
+    "total": 117,
+    "passed": 117,
+    "failed": 0,
+    "valid_cases": 76,
+    "expected_error_cases": 41
+  },
+  "capturas": {
+    "procedencia": "IDE original con backend sql_cli real y base temporal aislada",
+    "motor": "Chromium headless",
+    "zoom": "130%",
+    "recorte": "paneles de la interfaz",
+    "figuras_incluidas": [
+      "general.png",
+      "tokens.png",
+      "arbol.png",
+      "ast.png",
+      "join.png",
+      "in.png",
+      "exists.png",
+      "indice.png",
+      "semantica.png",
+      "ejecucion.png",
+      "pruebas.png"
+    ]
+  },
+  "compilacion": {
+    "motor": "pdfLaTeX",
+    "pasadas": 3,
+    "referencias_pendientes": false,
+    "texto_desbordado": false
+  },
+  "sha256_pdf": "c4192bc003f5034b56240cff3d167d2c40cc3010bdf528f584a488c3050b9d53"
+}
