@@ -22,6 +22,10 @@ try {
     Pop-Location
 }
 
+$Python = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "python3" }
+& $Python (Join-Path $ProjectRoot "scripts/setup_mars.py")
+if ($LASTEXITCODE -ne 0) { throw "No fue posible preparar MARS." }
+
 cmake -S $ProjectRoot -B $BuildDir -DCMAKE_BUILD_TYPE=Release
 cmake --build $BuildDir --config Release --parallel
 ctest --test-dir $BuildDir -C Release --output-on-failure

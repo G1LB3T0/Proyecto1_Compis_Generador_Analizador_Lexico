@@ -15,6 +15,7 @@ if [[ ! -f "${ANTLR_JAR}" ]]; then
 fi
 
 "${PROJECT_ROOT}/scripts/generate_antlr.sh"
+python3 "${PROJECT_ROOT}/scripts/setup_mars.py"
 
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${BUILD_DIR}" --parallel
