@@ -377,6 +377,15 @@ bool SemanticAnalyzer::terminates(
     return bodies.size() == 2 && bodyTerminates(bodies[0]) &&
            bodyTerminates(bodies[1]);
   }
+  if (statement->tryCatchStatement()) {
+    const auto blocks = statement->tryCatchStatement()->block();
+    for (auto *block : blocks) {
+      const auto statements = block->statement();
+      if (statements.empty() || !terminates(statements.back()))
+        return false;
+    }
+    return blocks.size() == 2;
+  }
   return false;
 }
 
@@ -512,12 +521,17 @@ std::any SemanticAnalyzer::visitConstantDeclaration(
 // presencia de return. Un procedimiento se representa con retorno void.
 std::any SemanticAnalyzer::visitFunctionDeclaration(
     CompiscriptParser::FunctionDeclarationContext *ctx) {
-  const std::string kind = class_stack_.empty() ? "function" : "method";
+  // Solo un miembro declarado directamente en el ámbito de clase recibe un
+  // receptor implícito. Una función dentro de un método conserva el contexto
+  // léxico de la clase para `this`, pero sigue siendo una función anidada.
+  const std::string kind = scopes_[current_scope_].kind == "class"
+                               ? "method"
+                               : "function";
   const int symbol_id = predeclareFunction(ctx, kind);
   if (symbol_id < 0 || visited_declarations_.count(ctx))
     return ExprResult{};
   visited_declarations_.insert(ctx);
-  if (!class_stack_.empty())
+  if (symbols_[symbol_id].kind == "method" && !class_stack_.empty())
     symbols_[symbol_id].owner_class = class_stack_.back();
   const std::string function_name = symbols_[symbol_id].name;
   const Type return_type = symbols_[symbol_id].return_type;
@@ -535,6 +549,8 @@ std::any SemanticAnalyzer::visitFunctionDeclaration(
   bindings_.scopes[ctx] = current_scope_;
   symbols_[symbol_id].function_scope_id = current_scope_;
   function_stack_.push_back(symbol_id);
+  const int enclosing_loop_depth = loop_depth_;
+  loop_depth_ = 0;
 
   const auto parameters =
       ctx->parameters() ? ctx->parameters()->parameter()
@@ -564,6 +580,7 @@ std::any SemanticAnalyzer::visitFunctionDeclaration(
     }
   }
   function_stack_.pop_back();
+  loop_depth_ = enclosing_loop_depth;
   current_scope_ = parent;
   return ExprResult{};
 }
@@ -691,14 +708,24 @@ std::any SemanticAnalyzer::visitForStatement(
     visit(ctx->variableDeclaration());
   if (ctx->expressionStatement())
     visit(ctx->expressionStatement());
-  const auto expressions = ctx->expression();
-  if (!expressions.empty()) {
-    const ExprResult condition = visitExpressionNode(expressions[0]);
-    requireType(condition.type, TYPE_BOOLEAN, expressions[0],
-                "La condición de for debe ser boolean");
+  // La condición y el incremento son opcionales de forma independiente. El
+  // vector no permite distinguir `for (;; i = i + 1)` de `for (; cond;)`:
+  // el último ';' directo del encabezado separa ambas posiciones.
+  size_t condition_separator = 0;
+  for (auto *child : ctx->children) {
+    auto *terminal = dynamic_cast<antlr4::tree::TerminalNode *>(child);
+    if (terminal && terminal->getText() == ";")
+      condition_separator = terminal->getSymbol()->getTokenIndex();
   }
-  if (expressions.size() > 1)
-    visit(expressions[1]);
+  for (auto *expression : ctx->expression()) {
+    if (expression->getStart()->getTokenIndex() < condition_separator) {
+      const ExprResult condition = visitExpressionNode(expression);
+      requireType(condition.type, TYPE_BOOLEAN, expression,
+                  "La condición de for debe ser boolean");
+    } else {
+      visit(expression);
+    }
+  }
   ++loop_depth_;
   visit(ctx->controlBody());
   --loop_depth_;

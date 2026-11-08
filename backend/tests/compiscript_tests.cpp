@@ -1,4 +1,4 @@
-// Batería de integración: valida semántica, TAC y omisión segura ante errores.
+// Batería de integración: valida semántica, TAC, MIPS y omisión ante errores.
 #include "compiscript/json.h"
 #include "compiscript/service.h"
 
@@ -41,6 +41,8 @@ std::vector<std::string> diagnosticCodes(const Result &result) {
   for (const auto &diagnostic : result.semantic.diagnostics)
     values.push_back(diagnostic.code);
   for (const auto &diagnostic : result.tac.diagnostics)
+    values.push_back(diagnostic.code);
+  for (const auto &diagnostic : result.mips.diagnostics)
     values.push_back(diagnostic.code);
   return values;
 }
@@ -98,10 +100,15 @@ std::string actualResult(const Result &result) {
                        std::to_string(diagnostic.line) + "): " +
                        diagnostic.message);
   }
+  for (const auto &diagnostic : result.mips.diagnostics) {
+    messages.push_back(diagnostic.code + " (línea " +
+                       std::to_string(diagnostic.line) + "): " +
+                       diagnostic.message);
+  }
   if (!messages.empty())
     return join(messages, " | ");
   if (result.ok)
-    return "Análisis completo y generación TAC terminados sin errores.";
+    return "Análisis completo y generación TAC/MIPS terminados sin errores.";
   if (result.semantic.skipped)
     return "El análisis semántico se omitió porque la entrada no es sintácticamente válida.";
   return "El análisis finalizó sin diagnósticos detallados.";
@@ -366,6 +373,13 @@ std::vector<TestCase> buildTests() {
                           "La condición de do-while debe ser boolean."));
   tests.push_back(valid("Control de flujo", "Ciclo for", "For completo",
                         "for (let i: integer = 0; i < 3; i = i + 1) { print(i); }"));
+  tests.push_back(valid(
+      "Control de flujo", "Ciclo for", "For sin condición con incremento",
+      "for (let i: integer = 0; ; i = i + 1) { if (i == 3) { break; } }",
+      "La condición ausente equivale a true y el incremento puede ser integer."));
+  tests.push_back(valid(
+      "Control de flujo", "Ciclo for", "For sin inicialización ni condición",
+      "let i = 0; for (; ; i = i + 1) { if (i == 2) { break; } }"));
   tests.push_back(invalid("Control de flujo", "Ciclo for",
                           "For con condición no booleana",
                           "for (; 1; ) { break; }", "SEM_TYPE_MISMATCH",
@@ -401,6 +415,32 @@ std::vector<TestCase> buildTests() {
                           "Continue fuera de ciclo", "continue;",
                           "SEM_FLOW_CONTINUE",
                           "continue solo es válido dentro de un ciclo."));
+  tests.push_back(invalid(
+      "Control de flujo", "Límites de función",
+      "Break no atraviesa una función anidada",
+      "while (true) { function interna() { break; } break; }",
+      "SEM_FLOW_BREAK",
+      "El bucle exterior pertenece a otra activación y no habilita break dentro de interna."));
+  tests.push_back(invalid(
+      "Control de flujo", "Límites de función",
+      "Continue no atraviesa una función anidada",
+      "while (true) { function interna() { continue; } break; }",
+      "SEM_FLOW_CONTINUE",
+      "Una función anidada necesita un bucle propio para utilizar continue."));
+  tests.push_back(valid(
+      "Control de flujo", "Límites de función",
+      "Restauración del bucle tras analizar una función",
+      "while (true) { function interna() { while (true) { break; } } interna(); break; }"));
+  tests.push_back(valid(
+      "Control de flujo", "Retorno en try/catch",
+      "Try y catch retornan en todos los caminos",
+      "function valor(): integer { try { return 1; } catch (e) { return 2; } } print(valor());"));
+  tests.push_back(invalid(
+      "Control de flujo", "Retorno en try/catch",
+      "Un catch sin retorno deja un camino abierto",
+      "function valor(): integer { try { return 1; } catch (e) { print(e); } }",
+      "SEM_FUNCTION_MISSING_RETURN",
+      "Una función con valor de retorno necesita retornar tanto en try como en catch."));
   tests.push_back(invalid("Control de flujo", "Sentencia return",
                           "Return fuera de función", "return 1;",
                           "SEM_FLOW_RETURN",
@@ -609,6 +649,20 @@ std::vector<TestCase> buildTests() {
           captured_frame = captured_frame || !frame.captured_symbols.empty();
         return result.ok && captured_frame && hasTacOp(result, "capture") &&
                hasTacOp(result, "static_link");
+      }));
+  tests.push_back(custom(
+      "Funciones y procedimientos", "Función anidada en método",
+      "This conserva el contexto léxico sin convertir la función en método",
+      "class C { let x: integer; function valor(): integer { function leer(): integer { return this.x; } return leer(); } } let c = new C(); print(c.valor());",
+      "Caso válido",
+      "leer debe conservar su clase léxica para this y ser invocable sin recibir un argumento receptor adicional.",
+      [](const Result &result) {
+        for (const auto &symbol : result.semantic.symbols) {
+          if (symbol.name == "leer")
+            return result.ok && symbol.kind == "function" &&
+                   symbol.owner_class.empty();
+        }
+        return false;
       }));
   tests.push_back(custom(
       "Generación de código intermedio", "Clases y objetos",

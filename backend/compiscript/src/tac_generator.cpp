@@ -73,7 +73,53 @@ TacValue TacGenerator::valueOf(const std::any &value) const {
 }
 
 TacValue TacGenerator::generateExpression(antlr4::tree::ParseTree *node) {
-  return node ? valueOf(visit(node)) : TacValue{};
+  TacValue value = node ? valueOf(visit(node)) : TacValue{};
+  if (!value.place.empty()) known_types_[typeKey(value.place)] = value.type;
+  return value;
+}
+
+
+std::string TacGenerator::typeKey(const std::string &place) const {
+  return std::to_string(function_stack_.empty() ? -1 : function_stack_.back()) + ":" + place;
+}
+
+Type TacGenerator::operandType(const std::string &place) const {
+  if (place.empty()) return TYPE_VOID;
+  auto known = known_types_.find(typeKey(place));
+  if (known != known_types_.end()) return known->second;
+  auto hash = place.rfind('#');
+  if (hash != std::string::npos) {
+    try { if (const Symbol *item = symbol(std::stoi(place.substr(hash + 1)))) return item->type; } catch (...) {}
+  }
+  if (place == "%this" && !class_stack_.empty()) return Type{class_stack_.back()};
+  if (place == "true" || place == "false") return TYPE_BOOLEAN;
+  if (place == "null") return TYPE_NULL;
+  if (place.front() == '"') return TYPE_STRING;
+  if (std::isdigit(static_cast<unsigned char>(place.front())) || place.front() == '-')
+    return place.find('.') == std::string::npos ? TYPE_INTEGER : TYPE_FLOAT;
+  return TYPE_UNKNOWN;
+}
+
+TacValue TacGenerator::snapshot(const TacValue &value, antlr4::ParserRuleContext *ctx) {
+  if (value.place.empty() || isTemporary(value.place) || value.type == TYPE_FUNCTION || value.type == TYPE_CLASS ||
+      (value.place[0] != '%' && value.place[0] != '@' && value.place.rfind("env[", 0) != 0)) return value;
+  const std::string temp = newTemp();
+  emit("assign", temp, value.place, {}, ctx);
+  instructions_.back().result_type = value.type.name;
+  known_types_[typeKey(temp)] = value.type;
+  TacValue result{value.type, temp};
+  return result;
+}
+
+void TacGenerator::stabilizeTarget(TacValue &value, antlr4::ParserRuleContext *ctx) {
+  if (value.location == TacLocation::Index || value.location == TacLocation::Field) {
+    TacValue base = snapshot(TacValue{operandType(value.base), value.base}, ctx);
+    value.base = base.place;
+    if (!value.index.empty()) {
+      TacValue index = snapshot(TacValue{TYPE_INTEGER, value.index}, ctx);
+      value.index = index.place;
+    }
+  }
 }
 
 Type TacGenerator::expressionType(const void *node) const {
@@ -342,6 +388,7 @@ std::string TacGenerator::newTemp() {
     ++pool.created;
     ++total_temporaries_created_;
   }
+  known_types_.erase(typeKey(name));
   pool.live.insert(name);
   pool.max_live = std::max(pool.max_live, pool.live.size());
   max_live_temporaries_ = std::max(max_live_temporaries_, pool.live.size());
@@ -384,6 +431,22 @@ void TacGenerator::emit(const std::string &op, const std::string &result,
   instruction.result = result;
   instruction.line = lineOf(ctx);
   instruction.column = columnOf(ctx);
+  instruction.arg1_type = operandType(arg1).name;
+  instruction.arg2_type = operandType(arg2).name;
+  Type result_type = operandType(result);
+  if (op == "new_object") result_type = Type{arg1};
+  else if (op == "new_list") result_type = expressionType(ctx);
+  else if (op == "assign" && result_type.isUnknown()) {
+    result_type = expressionType(ctx);
+    if (result_type.isUnknown()) result_type = operandType(arg1);
+  } else if (op == "load_index") result_type = operandType(arg1).element();
+  else if (op == "store_index") result_type = operandType(result).element();
+  else if (op == "load_field") {
+    if (const Symbol *member = symbol(boundSymbol(ctx))) result_type = member->type;
+  } else if (op == "store_field") instruction.arg1_type = operandType(result).name;
+  else if (op == "field_init") result_type = Type{arg2};
+  instruction.result_type = result_type.name;
+  if (!result.empty() && !result_type.isUnknown()) known_types_[typeKey(result)] = result_type;
   instruction.text = format(instruction);
   instructions_.push_back(std::move(instruction));
 }
@@ -471,16 +534,14 @@ TacValue TacGenerator::emitBinary(const std::string &op, const TacValue &left,
                                   antlr4::ParserRuleContext *ctx) {
   const std::string temporary = newTemp();
   emit(op, temporary, left.place, right.place, ctx);
-  Type type = expressionType(ctx);
-  if (type.isUnknown()) {
-    if (op == "eq" || op == "ne" || op == "lt" || op == "le" || op == "gt" ||
-        op == "ge")
-      type = TYPE_BOOLEAN;
-    else if (op == "div")
-      type = TYPE_FLOAT;
-    else
-      type = commonType(left.type, right.type);
-  }
+  Type type;
+  if (op == "eq" || op == "ne" || op == "lt" || op == "le" || op == "gt" || op == "ge") type = TYPE_BOOLEAN;
+  else if (op == "div") type = TYPE_FLOAT;
+  else type = commonType(left.type, right.type);
+  instructions_.back().result_type = type.name;
+  instructions_.back().arg1_type = left.type.name;
+  instructions_.back().arg2_type = right.type.name;
+  known_types_[typeKey(temporary)] = type;
   releaseValue(left);
   releaseValue(right);
   return {type, temporary};
@@ -509,8 +570,10 @@ TacGenerator::generateArguments(CompiscriptParser::ArgumentsContext *ctx) {
   std::vector<TacValue> values;
   if (!ctx)
     return values;
-  for (auto *expression : ctx->expression())
-    values.push_back(generateExpression(expression));
+  for (auto *expression : ctx->expression()) {
+    TacValue value = generateExpression(expression);
+    values.push_back(snapshot(value, expression));
+  }
   return values;
 }
 
@@ -522,9 +585,10 @@ TacValue TacGenerator::emitCall(const TacValue &callee,
            "La llamada no conserva el símbolo resuelto por la semántica.", ctx);
     return {};
   }
+  TacValue receiver = snapshot(TacValue{operandType(callee.receiver), callee.receiver}, ctx);
   std::vector<TacValue> arguments = generateArguments(ctx->arguments());
-  if (!callee.receiver.empty())
-    emit("param", {}, callee.receiver, {}, ctx);
+  if (!receiver.place.empty())
+    emit("param", {}, receiver.place, {}, ctx);
   for (const TacValue &argument : arguments)
     emit("param", {}, argument.place, {}, ctx);
   if (!function->captures.empty())
@@ -535,8 +599,11 @@ TacValue TacGenerator::emitCall(const TacValue &callee,
     result = newTemp();
   emit(function->kind == "method" ? "call_method" : "call", result,
        function->label, std::to_string(arguments.size()), ctx);
+  instructions_.back().result_type = function->return_type.name;
+  if (!result.empty()) known_types_[typeKey(result)] = function->return_type;
   for (const TacValue &argument : arguments)
     releaseValue(argument);
+  releaseValue(receiver);
   releaseTemp(callee.receiver);
   return {function->return_type, result};
 }
@@ -611,6 +678,7 @@ std::any TacGenerator::visitConstantDeclaration(
 std::any TacGenerator::visitAssignmentStatement(
     CompiscriptParser::AssignmentStatementContext *ctx) {
   TacValue target = generateExpression(ctx->leftHandSide());
+  stabilizeTarget(target, ctx);
   TacValue value = generateExpression(ctx->expression());
   store(target, value, ctx);
   releaseValue(target);
@@ -696,12 +764,23 @@ TacGenerator::visitForStatement(CompiscriptParser::ForStatementContext *ctx) {
   if (ctx->expressionStatement())
     visit(ctx->expressionStatement());
   const auto expressions = ctx->expression();
+  size_t separator = 0;
+  for (auto *child : ctx->children) {
+    auto *terminal = dynamic_cast<antlr4::tree::TerminalNode *>(child);
+    if (terminal && terminal->getText() == ";") separator = terminal->getSymbol()->getTokenIndex();
+  }
+  CompiscriptParser::ExpressionContext *condition_node = nullptr;
+  CompiscriptParser::ExpressionContext *increment_node = nullptr;
+  for (auto *expression : expressions) {
+    if (expression->getStart()->getTokenIndex() < separator) condition_node = expression;
+    else increment_node = expression;
+  }
   const std::string condition_label = newLabel("L_for_cond_");
   const std::string increment_label = newLabel("L_for_inc_");
   const std::string end_label = newLabel("L_for_end_");
   emit("label", condition_label, {}, {}, ctx);
-  if (!expressions.empty()) {
-    TacValue condition = generateExpression(expressions[0]);
+  if (condition_node) {
+    TacValue condition = generateExpression(condition_node);
     emit("if_false", end_label, condition.place, {}, ctx);
     releaseValue(condition);
   }
@@ -711,8 +790,8 @@ TacGenerator::visitForStatement(CompiscriptParser::ForStatementContext *ctx) {
   continue_targets_.pop_back();
   break_targets_.pop_back();
   emit("label", increment_label, {}, {}, ctx);
-  if (expressions.size() > 1) {
-    TacValue increment = generateExpression(expressions[1]);
+  if (increment_node) {
+    TacValue increment = generateExpression(increment_node);
     releaseValue(increment);
   }
   emit("goto", condition_label, {}, {}, ctx);
@@ -798,13 +877,13 @@ std::any TacGenerator::visitTryCatchStatement(
   const std::string end_label = newLabel("L_try_end_");
   emit("try_begin", catch_label, {}, {}, ctx);
   visit(ctx->block(0));
+  emit("try_end", {}, {}, {}, ctx);
   emit("goto", end_label, {}, {}, ctx);
   emit("label", catch_label, {}, {}, ctx);
   const int catch_id = boundSymbol(ctx);
   emit("catch", storageName(catch_id), {}, {}, ctx);
   visit(ctx->block(1));
   emit("label", end_label, {}, {}, ctx);
-  emit("try_end", {}, {}, {}, ctx);
   return TacValue{};
 }
 
@@ -847,6 +926,9 @@ std::any TacGenerator::visitFunctionDeclaration(
     return TacValue{};
   }
   emit("begin_func", function->label, {}, {}, ctx);
+  auto saved_break_targets = std::move(break_targets_);
+  auto saved_continue_targets = std::move(continue_targets_);
+  break_targets_.clear(); continue_targets_.clear();
   function_stack_.push_back(id);
   pushTempPool();
   if (function->kind == "method")
@@ -866,6 +948,8 @@ std::any TacGenerator::visitFunctionDeclaration(
     emit("return", {}, {}, {}, ctx);
   popTempPool(id);
   function_stack_.pop_back();
+  break_targets_ = std::move(saved_break_targets);
+  continue_targets_ = std::move(saved_continue_targets);
   emit("end_func", function->label, {}, {}, ctx);
   return TacValue{};
 }
@@ -908,6 +992,7 @@ TacGenerator::visitExpression(CompiscriptParser::ExpressionContext *ctx) {
 std::any
 TacGenerator::visitAssignExpr(CompiscriptParser::AssignExprContext *ctx) {
   TacValue target = generateExpression(ctx->leftHandSide());
+  stabilizeTarget(target, ctx);
   TacValue value = generateExpression(ctx->assignmentExpr());
   store(target, value, ctx);
   releaseValue(target);
@@ -928,6 +1013,8 @@ std::any TacGenerator::visitConditionalExpr(
   const std::string else_label = newLabel("L_ternary_else_");
   const std::string end_label = newLabel("L_ternary_end_");
   const std::string result = newTemp();
+  const Type result_type = commonType(expressionType(branches[0]), expressionType(branches[1]));
+  known_types_[typeKey(result)] = result_type;
   emit("if_false", else_label, condition.place, {}, ctx);
   releaseValue(condition);
   TacValue left = generateExpression(branches[0]);
@@ -939,7 +1026,7 @@ std::any TacGenerator::visitConditionalExpr(
   emit("assign", result, right.place, {}, ctx);
   releaseValue(right);
   emit("label", end_label, {}, {}, ctx);
-  return TacValue{expressionType(ctx), result};
+  return TacValue{result_type, result};
 }
 
 std::any
@@ -992,6 +1079,7 @@ TacGenerator::visitEqualityExpr(CompiscriptParser::EqualityExprContext *ctx) {
   const auto ops = operators(ctx, {"==", "!="});
   TacValue result = generateExpression(nodes.front());
   for (size_t index = 1; index < nodes.size(); ++index) {
+    result = snapshot(result, ctx);
     TacValue right = generateExpression(nodes[index]);
     result =
         emitBinary(ops[index - 1] == "==" ? "eq" : "ne", result, right, ctx);
@@ -1009,6 +1097,7 @@ std::any TacGenerator::visitRelationalExpr(
       {"<", "lt"}, {"<=", "le"}, {">", "gt"}, {">=", "ge"}};
   TacValue result = generateExpression(nodes.front());
   for (size_t index = 1; index < nodes.size(); ++index) {
+    result = snapshot(result, ctx);
     TacValue right = generateExpression(nodes[index]);
     result = emitBinary(names.at(ops[index - 1]), result, right, ctx);
   }
@@ -1023,6 +1112,7 @@ TacGenerator::visitAdditiveExpr(CompiscriptParser::AdditiveExprContext *ctx) {
   const auto ops = operators(ctx, {"+", "-"});
   TacValue result = generateExpression(nodes.front());
   for (size_t index = 1; index < nodes.size(); ++index) {
+    result = snapshot(result, ctx);
     TacValue right = generateExpression(nodes[index]);
     result =
         emitBinary(ops[index - 1] == "+" ? "add" : "sub", result, right, ctx);
@@ -1040,6 +1130,7 @@ std::any TacGenerator::visitMultiplicativeExpr(
       {"*", "mul"}, {"/", "div"}, {"%", "mod"}};
   TacValue result = generateExpression(nodes.front());
   for (size_t index = 1; index < nodes.size(); ++index) {
+    result = snapshot(result, ctx);
     TacValue right = generateExpression(nodes[index]);
     result = emitBinary(names.at(ops[index - 1]), result, right, ctx);
   }
@@ -1051,6 +1142,8 @@ TacGenerator::visitUnaryExpr(CompiscriptParser::UnaryExprContext *ctx) {
   if (ctx->primaryExpr())
     return visit(ctx->primaryExpr());
   TacValue operand = generateExpression(ctx->unaryExpr());
+  if (ctx->getStart()->getText() == "-" && operand.type == TYPE_INTEGER && operand.place == "2147483648")
+    return TacValue{TYPE_INTEGER, "-2147483648"};
   const std::string result = newTemp();
   emit(ctx->getStart()->getText() == "!" ? "not" : "neg", result, operand.place,
        {}, ctx);
@@ -1089,7 +1182,14 @@ std::any
 TacGenerator::visitArrayLiteral(CompiscriptParser::ArrayLiteralContext *ctx) {
   const auto expressions = ctx->expression();
   const std::string result = newTemp();
+  Type expected_element = TYPE_UNKNOWN;
+  for (auto *expression : expressions) {
+    Type type = expressionType(expression);
+    expected_element = expected_element.isUnknown() ? type : commonType(expected_element, type);
+  }
+  known_types_[typeKey(result)] = listOf(expected_element);
   emit("new_list", result, std::to_string(expressions.size()), {}, ctx);
+  known_types_[typeKey(result)] = listOf(expected_element);
   Type element = TYPE_UNKNOWN;
   for (size_t index = 0; index < expressions.size(); ++index) {
     TacValue value = generateExpression(expressions[index]);
@@ -1112,8 +1212,11 @@ std::any TacGenerator::visitIdentifierExpr(
            "El identificador no conserva el símbolo resuelto.", ctx);
     return TacValue{};
   }
-  if (item->kind == "function" || item->kind == "method")
-    return TacValue{TYPE_FUNCTION, item->label, id};
+  if (item->kind == "function" || item->kind == "method") {
+    TacValue function{TYPE_FUNCTION, item->label, id};
+    if (item->kind == "method") function.receiver = "%this";
+    return function;
+  }
   if (item->kind == "class")
     return TacValue{TYPE_CLASS, item->label, id};
   if (item->kind == "field") {

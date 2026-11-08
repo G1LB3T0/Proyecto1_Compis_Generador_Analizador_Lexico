@@ -134,6 +134,7 @@ private:
   std::vector<std::string> break_targets_;
   std::vector<std::string> continue_targets_;
   std::vector<TempPool> temp_pools_;
+  std::unordered_map<std::string, Type> known_types_;
   int label_counter_ = 0;
   size_t total_temporaries_created_ = 0;
   size_t total_temporaries_reused_ = 0;
@@ -141,6 +142,10 @@ private:
 
   TacValue valueOf(const std::any &value) const;
   TacValue generateExpression(antlr4::tree::ParseTree *node);
+  TacValue snapshot(const TacValue &value, antlr4::ParserRuleContext *ctx);
+  void stabilizeTarget(TacValue &value, antlr4::ParserRuleContext *ctx);
+  std::string typeKey(const std::string &place) const;
+  Type operandType(const std::string &place) const;
   Type expressionType(const void *node) const;
   int boundSymbol(const void *node) const;
   const Symbol *symbol(int id) const;
