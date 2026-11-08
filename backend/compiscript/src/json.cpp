@@ -236,6 +236,9 @@ std::string tacJson(const TacResult &tac) {
            << ",\"op\":" << quoteJson(instruction.op)
            << ",\"arg1\":" << quoteJson(instruction.arg1)
            << ",\"arg2\":" << quoteJson(instruction.arg2)
+           << ",\"result_type\":" << quoteJson(instruction.result_type)
+           << ",\"arg1_type\":" << quoteJson(instruction.arg1_type)
+           << ",\"arg2_type\":" << quoteJson(instruction.arg2_type)
            << ",\"result\":" << quoteJson(instruction.result)
            << ",\"text\":" << quoteJson(instruction.text)
            << ",\"line\":" << instruction.line
@@ -251,6 +254,34 @@ std::string tacJson(const TacResult &tac) {
   return output.str();
 }
 
+std::string mipsJson(const MipsResult &mips) {
+  std::ostringstream output;
+  output << "{\"ok\":" << boolean(mips.ok)
+         << ",\"skipped\":" << boolean(mips.skipped)
+         << ",\"reason\":" << quoteJson(mips.reason)
+         << ",\"diagnostics\":" << diagnosticsJson(mips.diagnostics)
+         << ",\"text\":" << quoteJson(mips.text)
+         << ",\"target\":\"MIPS32 / MARS 4.5\""
+         << ",\"instruction_count\":" << mips.instruction_count
+         << ",\"register_allocations\":" << mips.register_allocations
+         << ",\"spills\":" << mips.spills << ",\"frames\":[";
+  for (size_t index = 0; index < mips.frames.size(); ++index) {
+    if (index) output << ',';
+    const MipsFrame &frame = mips.frames[index];
+    output << "{\"function_symbol_id\":" << frame.function_symbol_id
+           << ",\"parent_symbol_id\":" << frame.parent_symbol_id
+           << ",\"name\":" << quoteJson(frame.name)
+           << ",\"label\":" << quoteJson(frame.label)
+           << ",\"frame_size\":" << frame.frame_size
+           << ",\"parameter_bytes\":" << frame.parameter_bytes
+           << ",\"local_bytes\":" << frame.local_bytes
+           << ",\"temporary_bytes\":" << frame.temporary_bytes
+           << ",\"saved_register_bytes\":" << frame.saved_register_bytes << '}';
+  }
+  output << "]}";
+  return output.str();
+}
+
 } // namespace
 
 std::string analysisToJson(const AnalysisResult &result) {
@@ -259,12 +290,14 @@ std::string analysisToJson(const AnalysisResult &result) {
              result.semantic.diagnostics.end());
   all.insert(all.end(), result.tac.diagnostics.begin(),
              result.tac.diagnostics.end());
+  all.insert(all.end(), result.mips.diagnostics.begin(), result.mips.diagnostics.end());
   std::ostringstream output;
   output << "{\"ok\":" << boolean(result.ok)
          << ",\"filename\":" << quoteJson(result.filename)
          << ",\"syntax_ok\":" << boolean(result.syntax_ok)
          << ",\"semantic_ok\":" << boolean(result.semantic_ok)
          << ",\"tac_ok\":" << boolean(result.tac_ok)
+         << ",\"mips_ok\":" << boolean(result.mips_ok)
          << ",\"tokens\":[";
   for (size_t index = 0; index < result.tokens.size(); ++index) {
     if (index)
@@ -280,11 +313,14 @@ std::string analysisToJson(const AnalysisResult &result) {
          << diagnosticsJson(result.syntax_diagnostics)
          << ",\"semantic\":" << semanticJson(result.semantic)
          << ",\"tac\":" << tacJson(result.tac)
+         << ",\"mips\":" << mipsJson(result.mips)
          << ",\"diagnostics\":" << diagnosticsJson(all)
          << ",\"summary\":{\"tokens\":" << result.tokens.size()
          << ",\"syntax_errors\":" << result.syntax_diagnostics.size()
          << ",\"semantic_errors\":" << result.semantic.diagnostics.size()
          << ",\"tac_errors\":" << result.tac.diagnostics.size()
+         << ",\"mips_errors\":" << result.mips.diagnostics.size()
+         << ",\"mips_instructions\":" << result.mips.instruction_count
          << ",\"tac_instructions\":" << result.tac.instructions.size()
          << ",\"scopes\":" << result.semantic.scopes.size()
          << ",\"symbols\":" << result.semantic.symbols.size() << "}}";

@@ -4,6 +4,7 @@
 #include "CompiscriptLexer.h"
 #include "CompiscriptParser.h"
 #include "compiscript/diagnostics.h"
+#include "compiscript/mips_generator.h"
 #include "compiscript/semantic_analyzer.h"
 #include "compiscript/tac_generator.h"
 #include "compiscript/token_classifier.h"
@@ -66,6 +67,10 @@ AnalysisResult analyzeSource(const std::string &source,
     if (result.semantic.ok) {
       TacGenerator generator(result.semantic, analyzer.bindings());
       result.tac = generator.generate(tree);
+      if (result.tac.ok) {
+        MipsGenerator backend(result.semantic, result.tac);
+        result.mips = backend.generate();
+      }
     } else {
       result.tac.ok = false;
       result.tac.skipped = true;
@@ -84,7 +89,12 @@ AnalysisResult analyzeSource(const std::string &source,
   }
   result.semantic_ok = result.syntax_ok && result.semantic.ok;
   result.tac_ok = result.semantic_ok && result.tac.ok;
-  result.ok = result.syntax_ok && result.semantic_ok && result.tac_ok;
+  if (!result.tac_ok) {
+    result.mips.skipped = true;
+    result.mips.reason = "La generación MIPS se omitió porque una fase previa contiene errores.";
+  }
+  result.mips_ok = result.tac_ok && result.mips.ok;
+  result.ok = result.syntax_ok && result.semantic_ok && result.tac_ok && result.mips_ok;
   return result;
 }
 
