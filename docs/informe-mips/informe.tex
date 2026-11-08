@@ -1,0 +1,1356 @@
+% Informe del proyecto de generación de código MIPS de Compiscript.
+% Compilar con: tectonic -X compile informe.tex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[spanish,es-tabla,es-noquoting]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{needspace}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+
+% Tolerancia extra para párrafos con nombres largos en \texttt.
+\setlength{\emergencystretch}{3em}
+
+\definecolor{fondoCodigo}{RGB}{247,248,250}
+\definecolor{bordeCodigo}{RGB}{200,205,214}
+\definecolor{comentario}{RGB}{95,120,95}
+\definecolor{palabraClave}{RGB}{40,70,150}
+\definecolor{cadena}{RGB}{150,60,40}
+\definecolor{etiquetaTAC}{RGB}{120,50,120}
+\definecolor{verdeUVG}{RGB}{0,105,60}
+
+\lstdefinelanguage{Compiscript}{
+  morekeywords={let,const,var,function,class,new,this,return,if,else,while,
+    do,for,foreach,in,break,continue,switch,case,default,try,catch,print,
+    integer,float,string,boolean,void,null,true,false},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+}
+
+% Lenguaje intermedio TAC de Compiscript: palabras de control resaltadas.
+\lstdefinelanguage{TAC}{
+  morekeywords={begin_program,end_program,begin_func,end_func,param_in,param,
+    call,call_method,return,declare,goto,if_true,if_false,label,print},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]",
+}
+
+% Ensamblador MIPS32 para MARS.
+\lstdefinelanguage{MIPS}{
+  morekeywords={addiu,addu,subu,and,or,sll,li,la,lw,sw,sb,lb,move,jal,jr,j,
+    beq,bne,blez,bltz,nop,syscall,mul,div,mfhi,mflo},
+  morekeywords=[2]{.text,.data,.globl,.align,.word,.byte,.double},
+  keywordstyle=[2]\color{etiquetaTAC}\bfseries,
+  sensitive=true,
+  morecomment=[l]{\#},
+  morestring=[b]",
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{palabraClave}\bfseries,
+  commentstyle=\color{comentario},
+  stringstyle=\color{cadena},
+  backgroundcolor=\color{fondoCodigo},
+  frame=single,
+  rulecolor=\color{bordeCodigo},
+  breaklines=true,
+  showstringspaces=false,
+  extendedchars=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  xleftmargin=18pt,
+  framexleftmargin=18pt,
+  captionpos=b,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+           {ñ}{{\~n}}1 {Á}{{\'A}}1 {É}{{\'E}}1 {Ó}{{\'O}}1 {→}{{$\rightarrow$}}1,
+}
+
+% Listado sin numeración para los fragmentos pequeños.
+\lstdefinestyle{sinnumero}{numbers=none,xleftmargin=4pt,framexleftmargin=4pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Fase de Compilación: Generación de Código MIPS}
+\fancyhead[R]{\small Compiscript --- ANTLR + C++}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\captionsetup{font=small,labelfont=bf}
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% Encabezado en línea propia para las tablas que siguen (un \paragraph en línea
+% quedaría después del flotante).
+\newcommand{\subhead}[1]{\par\medskip\noindent\textbf{#1}\par\nopagebreak\smallskip}
+
+\begin{document}
+
+% ------------------------------------------------------------------ CARÁTULA
+\begin{titlepage}
+\begin{center}
+
+\vspace*{0.2cm}
+
+\includegraphics[width=0.24\textwidth]{img/uvg-logo.png}
+
+\vspace{0.8cm}
+
+{\Large\scshape Universidad del Valle de Guatemala}\\[0.30cm]
+{\large Facultad de Ingeniería}\\[0.20cm]
+{\large Departamento de Ciencias de la Computación}\\[0.20cm]
+{\large Construcción de Compiladores}
+
+\vspace{1.1cm}
+
+\rule{\textwidth}{0.8pt}
+
+\vspace{0.5cm}
+
+{\Huge\bfseries [M3] Fase de Compilación:}\\[0.30cm]
+{\Huge\bfseries Generación de Código MIPS}
+
+\vspace{0.5cm}
+
+{\Large Backend MIPS32 y ejecución en MARS para Compiscript}\\[0.30cm]
+{\small ANTLR 4.13.2 \ $\bullet$ \ C++17 \ $\bullet$ \ TAC \ $\bullet$ \ MIPS32 \ $\bullet$ \ MARS 4.5 \ $\bullet$ \ IDE web}\\[0.30cm]
+{\scriptsize\url{https://github.com/G1LB3T0/Proyecto1_Compis_Generador_Analizador_Lexico/tree/Compiladores2-Proyecto3-MIPS}}
+
+\vspace{0.5cm}
+
+\rule{\textwidth}{0.8pt}
+
+\vspace{1.2cm}
+
+{\large\bfseries Catedrático}\\[0.25cm]
+{\large Ing. Pablo Koch}
+
+\vspace{0.9cm}
+
+{\large\bfseries Integrantes}\\[0.3cm]
+{\large Luis Gonzalez --- 23353}\\[0.2cm]
+{\large Joel Jaquez --- 23369}
+
+\vfill
+
+{\large Guatemala, 8 de noviembre de 2026}\\[0.18cm]
+{\small Versión del código documentada: \texttt{a82cd63}}
+
+\end{center}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ------------------------------------------------------------ 1 INTRODUCCIÓN
+\section{Introducción}
+
+Este informe documenta la fase final del compilador de \textbf{Compiscript}: la
+\textbf{generación de código MIPS}. La fase parte del código de tres direcciones
+(TAC) y de la tabla de símbolos extendida que produjo la fase anterior, y los
+traduce a \textbf{ensamblador MIPS32} que el simulador \textbf{MARS} ensambla a
+código máquina y ejecuta. Con ello el compilador recorre, por primera vez, el
+camino completo desde un archivo \texttt{.cps} hasta un programa que corre y
+produce salida observable.
+
+Como en las fases anteriores, \textbf{todo el compilador está escrito en C++17}.
+El backend es una tercera pasada, el \texttt{MipsGenerator}, que se enlaza en la
+misma biblioteca nativa que el analizador semántico y el generador de TAC.
+Python aparece únicamente como adaptador: el servidor Flask del IDE y un módulo
+que invoca a MARS y recoge su salida. Ninguna regla de traducción a MIPS está
+implementada fuera de C++.
+
+La fase aporta cuatro piezas, que corresponden a los componentes evaluados:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Un generador MIPS32} que traduce cada familia de cuádruplos
+        ---datos, expresiones, saltos, funciones, listas, objetos, campos,
+        métodos y excepciones--- a instrucciones, junto con un entorno de
+        ejecución propio para aritmética mixta, cadenas, impresión y errores.
+  \item \textbf{Una convención de llamadas} con registros de activación
+        físicos de 64 bytes de cabecera, enlaces de control y de acceso,
+        paso de parámetros por pila y retorno en \texttt{\$v0}/\texttt{\$v1}.
+  \item \textbf{Un algoritmo de asignación de registros} basado en
+        \texttt{getReg}, con descriptores de registros, política LRU y
+        \emph{spills} a la pila, con métricas observables.
+  \item \textbf{La integración con MARS}: ensamblado, ejecución con límite de
+        pasos, volcado del código máquina y una consola de ejecución en el IDE.
+\end{itemize}
+
+La validación crece a \textbf{193 casos automatizados}: 115 escenarios C++ de
+semántica, TAC y MIPS, 66 programas que se ejecutan de verdad en MARS y cuya
+salida se compara con un resultado esperado, y 12 pruebas de integración del
+IDE.
+
+% -------------------------------------------------------------- 2 OBJETIVOS
+\section{Objetivos}
+
+\subsection{Objetivo general}
+
+Implementar un generador de código objeto para Compiscript que, a partir del
+código de tres direcciones y la tabla de símbolos de las fases anteriores,
+emita ensamblador MIPS32 correcto y ejecutable en un simulador, manejando
+llamadas, retornos, registros de activación y asignación de registros.
+
+\subsection{Objetivos específicos}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Definir una representación física de los valores del lenguaje sobre
+        palabras de 32 bits, que conserve el tipo efectivo de cada valor.
+  \item Diseñar e implementar una convención de llamadas con prólogo, epílogo,
+        enlaces de control y de acceso, paso de parámetros y retorno.
+  \item Traducir cada instrucción del TAC a una secuencia MIPS equivalente,
+        incluidas funciones anidadas, recursión, clases, herencia, listas y
+        \texttt{try/catch}.
+  \item Implementar un algoritmo \texttt{getReg} con descriptores de registros
+        y \emph{spills}, y exponer sus métricas.
+  \item Ejecutar el ensamblador en MARS, distinguir errores de ensamblado y de
+        ejecución, y empaquetar el código máquina resultante.
+  \item Ampliar el IDE y las baterías de pruebas para compilar, ejecutar y
+        verificar los programas generados.
+\end{itemize}
+
+% ------------------------------------------------------------ 3 ARQUITECTURA
+\section{Arquitectura general}
+
+\subsection{El pipeline}
+
+El flujo de información va del texto fuente al programa ejecutado en MARS. Las
+etapas nuevas de esta fase son el \texttt{MipsGenerator} y el adaptador del
+simulador:
+
+\begin{center}
+\begin{minipage}{0.86\textwidth}
+\ttfamily\small
+\begin{verbatim}
+Código .cps
+    |
+    v
+CompiscriptLexer / CompiscriptParser  (ANTLR, C++)
+    |
+    v
+SemanticAnalyzer  (Visitor C++, primera pasada)
+    |-- tipos, ámbitos, tabla de símbolos
+    v
+TacGenerator      (Visitor C++, segunda pasada)
+    |-- cuádruplos tipados + registros de activación
+    v
+(solo si léxico, sintaxis, semántica y TAC son correctos)
+    v
+MipsGenerator     (C++, tercera pasada)        <<< NUEVO
+    |-- rutinas, frames físicos, getReg, runtime
+    v
+JSON: diagnósticos + símbolos + TAC + MIPS + frames
+    |
+    v
+Flask (adaptador) -> IDE web (Código MIPS, Consola MIPS)
+    |
+    v
+mips_runtime.py -> MARS 4.5 (ensamblado y ejecución)   <<< NUEVO
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+\subsection{Una tercera pasada sobre cuádruplos}
+
+A diferencia del analizador semántico y del generador de TAC, el
+\texttt{MipsGenerator} \textbf{no es un Visitor del árbol}. Recibe el
+\texttt{SemanticResult} y el \texttt{TacResult} y trabaja sobre los cuádruplos
+estructurados: usa \texttt{op}, \texttt{arg1}, \texttt{arg2} y \texttt{result}
+de cada \texttt{TacInstruction}. La representación textual del TAC es solo una
+vista para lectura humana; nunca se vuelve a tokenizar.
+
+Para seleccionar instrucciones y aplicar coerciones, el generador necesita el
+tipo de cada operando. Por eso esta fase extiende \texttt{TacInstruction} con
+tres campos nuevos ---\texttt{result\_type}, \texttt{arg1\_type} y
+\texttt{arg2\_type}--- que el generador de TAC llena al emitir cada cuádruplo.
+
+\subsection{Núcleo independiente de la interfaz}
+
+El núcleo sigue exponiendo una sola función pública, \texttt{analyzeSource}, que
+devuelve un \texttt{AnalysisResult}. Ahora incluye el bloque \texttt{mips}
+(\texttt{MipsResult}) y el indicador \texttt{mips\_ok}. El CLI, las baterías de
+pruebas y el IDE usan el mismo servicio, de modo que lo que se prueba es
+exactamente lo que se ejecuta.
+
+\subsection{Cuándo se genera código}
+
+El backend \textbf{solo se ejecuta cuando todas las fases anteriores terminaron
+sin errores}. Si alguna falla, el resultado MIPS queda marcado como
+\texttt{skipped} con una explicación en \texttt{reason}:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{4.3cm}cccc@{}}
+\toprule
+\textbf{Entrada} & \textbf{Sintaxis} & \textbf{Semántica} & \textbf{TAC} & \textbf{MIPS} \\
+\midrule
+Error léxico o sintáctico & con errores & omitida & omitido & omitido \\
+Error semántico & correcta & con errores & omitido & omitido \\
+Error de generación MIPS & correcta & correcta & generado & con errores \\
+Programa válido & correcta & correcta & generado & generado \\
+\bottomrule
+\end{tabular}
+\caption{Estado de cada fase según el punto en que falla el programa.}
+\end{table}
+
+Un error de generación MIPS ---por ejemplo, un literal entero que no cabe en 32
+bits--- tiene código, categoría \emph{generación MIPS}, mensaje, línea y
+columna, igual que los diagnósticos de las fases anteriores. Además, los
+resultados de \textbf{compilación} y \textbf{ejecución} son distintos: un
+programa puede compilar correctamente y fallar al ejecutarse (división por cero,
+índice fuera de rango), y el IDE los presenta por separado.
+
+% ------------------------------------------------- 4 TRAZABILIDAD POR COMMITS
+\section{Estructura del repositorio y trazabilidad por commits}
+
+El desarrollo de esta fase se realizó en la rama
+\texttt{Compiladores2-Proyecto3-MIPS}, a partir del último commit de la fase de
+código intermedio (\texttt{4b379ad}). Cada commit corresponde a una unidad
+funcional completa y a un solo autor, de modo que la contribución individual
+queda registrada en el historial. Los ocho commits se publicaron el 8 de
+noviembre de 2026 y suman 26 archivos modificados, 3\,056 líneas agregadas y 108
+eliminadas. Las identidades de Git corresponden a los dos integrantes:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Identidad en Git} & \textbf{Correo} & \textbf{Integrante} \\
+\midrule
+\texttt{G1LB3T0}  & luis.yo09@hotmail.com & Luis Gonzalez (23353) \\
+\texttt{jaq23369} & jaq23369@uvg.edu.gt   & Joel Jaquez (23369) \\
+\bottomrule
+\end{tabular}
+\caption{Identidades de Git utilizadas en la rama.}
+\end{table}
+
+\subsection{Historial de la rama}
+
+La tabla siguiente recorre los ocho commits de la fase en orden cronológico y
+explica qué archivos introduce cada uno y por qué. Es, en la práctica, el mapa
+de lectura del repositorio.
+
+\begin{longtable}{@{}p{1.6cm}L{2.7cm}L{9.1cm}@{}}
+\toprule
+\textbf{Commit} & \textbf{Autor} & \textbf{Aporte y archivos} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Commit} & \textbf{Autor} & \textbf{Aporte y archivos} \\
+\midrule
+\endhead
+
+\texttt{afe1463} & Luis Gonzalez &
+\textbf{[ADD] Implementar modelo y generador MIPS de Compiscript.} El corazón
+de la fase. Crea \texttt{mips\_generator.h} y \texttt{mips\_generator.cpp}
+(1\,012 líneas): extracción de rutinas, \emph{layout} de frames físicos,
+\texttt{getReg}, selección de instrucciones y el entorno de ejecución en
+ensamblador. En \texttt{model.h} agrega \texttt{MipsFrame}, \texttt{MipsResult},
+los tipos de operandos de \texttt{TacInstruction} y \texttt{AnalysisResult.mips}.
+3 archivos, +1\,062/$-$0. \\
+\addlinespace
+
+\texttt{402a3c2} & Luis Gonzalez &
+\textbf{[UPDATE] Preparar semántica y TAC para generación MIPS.} Ajusta las
+fases anteriores a lo que el backend necesita: el TAC registra los tipos de
+cada operando y conserva el \texttt{this} léxico de funciones anidadas en
+métodos; la semántica impide que \texttt{break}/\texttt{continue} atraviesen una
+función anidada y exige retorno en \texttt{try} y en \texttt{catch}. Agrega los
+escenarios correspondientes a \texttt{compiscript\_tests.cpp}. 4 archivos,
++223/$-$34. \\
+\addlinespace
+
+\texttt{50a4dbf} & Luis Gonzalez &
+\textbf{[ADD] Integrar backend MIPS en servicio y CLI.} En \texttt{service.cpp}
+invoca al \texttt{MipsGenerator} solo si el TAC es válido. En \texttt{json.cpp}
+serializa el bloque \texttt{mips} (texto, diagnósticos, métricas y frames). En
+\texttt{main.cpp} agrega \texttt{--emit-mips} y \texttt{-o} para guardar el
+ensamblador. 4 archivos, +105/$-$15. \\
+\addlinespace
+
+\texttt{db2e0fa} & Joel Jaquez &
+\textbf{[ADD] Ejecutar y ensamblar MIPS con MARS.} Crea
+\texttt{mips\_runtime.py} (invocación de MARS, límite de pasos, volcados y
+paquete ZIP), \texttt{scripts/run\_mips.py} (CLI de ejecución) y
+\texttt{scripts/setup\_mars.py} (descarga verificada por SHA-256). Integra la
+preparación de MARS en los scripts de construcción. 5 archivos, +233/$-$0. \\
+\addlinespace
+
+\texttt{03408a6} & Joel Jaquez &
+\textbf{[TEST] Validar ejecución MIPS y algoritmos del compilador.} Crea
+\texttt{mips\_execution\_tests.py} (372 líneas, 66 casos que se ejecutan en
+MARS) y el programa \texttt{algoritmo\_compilador.cps}; registra la batería en
+CTest cuando hay Python, Java y MARS. 3 archivos, +464/$-$0. \\
+\addlinespace
+
+\texttt{279ddee} & Joel Jaquez &
+\textbf{[ADD] Integrar MIPS y consola de ejecución en el IDE.} Agrega a
+\texttt{app.py} las rutas \texttt{/api/simulator}, \texttt{/api/run} y
+\texttt{/api/build}; al IDE, las pestañas \emph{Código MIPS} y
+\emph{Consola MIPS}, el botón \emph{Ejecutar en MIPS} y el estado del
+simulador. Crea \texttt{ide\_integration\_tests.py} con 12 pruebas. 5 archivos,
++374/$-$24. \\
+\addlinespace
+
+\texttt{bd0d6b6} & Joel Jaquez &
+\textbf{[DOC] Documentar arquitectura y generación MIPS.} Crea
+\texttt{docs/generacion-mips.md} (399 líneas) con la representación de valores,
+la convención de llamadas, la política de \texttt{getReg}, el uso de MARS y las
+pruebas; actualiza \texttt{docs/arquitectura-compiscript.md}. 2 archivos,
++465/$-$5. \\
+\addlinespace
+
+\texttt{a82cd63} & Luis Gonzalez &
+\textbf{[DOC] Actualizar guía de uso y pruebas del proyecto 3.} Reescribe el
+\texttt{README.md} con la arquitectura completa, los requisitos (Java y MARS),
+la construcción, el uso del CLI, del IDE y de las tres baterías. 1 archivo,
++130/$-$30. \\
+\bottomrule
+\caption{Trazabilidad de la rama \texttt{Compiladores2-Proyecto3-MIPS}.}
+\end{longtable}
+
+\subsection{Lectura del historial}
+
+El orden de los commits refleja el orden natural de construcción de la fase.
+Primero se implementa el generador y su modelo de datos (\texttt{afe1463}) y se
+ajustan las fases anteriores a lo que necesita (\texttt{402a3c2}); luego se
+conecta al servicio y al CLI (\texttt{50a4dbf}) y se ejecuta en el simulador
+real (\texttt{db2e0fa}). Después llegan la evidencia de que el código generado
+funciona (\texttt{03408a6}), la interfaz (\texttt{279ddee}) y la documentación
+(\texttt{bd0d6b6}, \texttt{a82cd63}). La autoría se reparte entre los dos
+integrantes: cuatro commits cada uno.
+
+% -------------------------------------------------- 5 ARCHIVOS POR CAPA
+\section{Descripción de los archivos por capa}
+
+La fase no modifica la gramática ni el código generado por ANTLR. Las tablas
+siguientes listan los archivos nuevos o modificados, con su tamaño actual en
+líneas.
+
+\subsection{Núcleo del compilador}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{5.9cm}L{1.9cm}rL{4.5cm}@{}}
+\toprule
+\textbf{Archivo} & \textbf{Estado} & \textbf{Líneas} & \textbf{Función} \\
+\midrule
+\texttt{src/mips\_generator.cpp} & nuevo & 1012 &
+Tercera pasada: rutinas, frames, \texttt{getReg}, selección de instrucciones y
+entorno de ejecución. \\
+\texttt{include/.../mips\_generator.h} & nuevo & 19 &
+Interfaz pública \texttt{MipsGenerator::\allowbreak generate()}. \\
+\texttt{include/.../model.h} & modificado & 217 &
+\texttt{MipsFrame}, \texttt{MipsResult} y tipos de operandos del TAC. \\
+\texttt{src/tac\_generator.cpp} & modificado & 1314 &
+Emite los tipos de operandos y el \texttt{this} léxico. \\
+\texttt{src/semantic\_analyzer.cpp} & modificado & 1288 &
+Límites de \texttt{break}/\texttt{continue} y retorno en \texttt{try/catch}. \\
+\texttt{src/service.cpp} & modificado & 101 &
+Encadena semántica, TAC y MIPS. \\
+\texttt{src/json.cpp} & modificado & 330 &
+Serializa el bloque \texttt{mips}. \\
+\texttt{src/main.cpp} & modificado & 96 &
+Opciones \texttt{--emit-mips} y \texttt{-o}. \\
+\bottomrule
+\end{tabular}
+\caption{Archivos del núcleo C++ tocados en esta fase.}
+\end{table}
+
+\subsection{Simulador, pruebas, IDE y documentación}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{6.5cm}rL{6.1cm}@{}}
+\toprule
+\textbf{Archivo} & \textbf{Líneas} & \textbf{Función} \\
+\midrule
+\texttt{mips\_runtime.py} & 125 &
+Adaptador de MARS: ejecución, volcados y paquete de código máquina. \\
+\texttt{scripts/run\_mips.py} & 66 & CLI para compilar y ejecutar en MARS. \\
+\texttt{scripts/setup\_mars.py} & 37 & Descarga y verificación de \texttt{Mars.jar}. \\
+\texttt{tests/mips\_execution\_tests.py} & 372 &
+66 programas ejecutados en MARS con salida esperada. \\
+\texttt{tests/ide\_integration\_tests.py} & 102 & 12 pruebas de las rutas Flask. \\
+\texttt{tests/compiscript\_tests.cpp} & 870 & 115 escenarios de semántica, TAC y MIPS. \\
+\texttt{examples/.../algoritmo\_\allowbreak compilador.cps} & 79 &
+Algoritmos del propio compilador en Compiscript. \\
+\texttt{app.py} & 219 & Rutas de ejecución, ensamblado y estado del simulador. \\
+\texttt{frontend/static/js/app.js} & 1247 & Pestañas \emph{Código MIPS} y \emph{Consola MIPS}. \\
+\texttt{docs/generacion-mips.md} & 399 & Diseño del backend y uso de MARS. \\
+\texttt{README.md} & 397 & Compilación, ejecución y pruebas. \\
+\bottomrule
+\end{tabular}
+\caption{Archivos del simulador, pruebas, interfaz y documentación.}
+\end{table}
+
+% ------------------------------------------- 6 REPRESENTACIÓN DE VALORES
+\section{Representación física de valores}
+
+El destino es \textbf{MIPS32}: las direcciones y las palabras son de 32 bits.
+Compiscript tiene tipos estáticos, pero algunas situaciones requieren conocer el
+tipo en tiempo de ejecución: un temporal \texttt{\%tN} reciclado puede contener
+valores de tipos distintos en instrucciones sucesivas, la variable de un
+\texttt{catch} es de tipo desconocido y \texttt{print} debe formatear cada valor
+según su tipo. Por eso \textbf{cada valor ocupa un slot de 8 bytes}: una palabra
+de carga útil seguida de una palabra de etiqueta de tipo.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}rlL{9.4cm}@{}}
+\toprule
+\textbf{Etiqueta} & \textbf{Tipo} & \textbf{Carga útil} \\
+\midrule
+0 & \texttt{null} & Cero. \\
+1 & \texttt{integer} & Entero con signo de 32 bits. \\
+2 & \texttt{boolean} & Cero o uno. \\
+3 & \texttt{string} & Dirección de una cadena UTF-8 terminada en cero. \\
+4 & \texttt{float} & Dirección de un doble de 64 bits alineado a 8 bytes. \\
+6 & Lista & Dirección de su cabecera. \\
+7 & Objeto & Dirección de su cabecera. \\
+8 & Función & Dirección de su código. \\
+\bottomrule
+\end{tabular}
+\caption{Etiquetas de tipo de un slot de valor.}
+\end{table}
+
+Los dobles se almacenan \textbf{por referencia} para que el slot mantenga el
+mismo tamaño que los demás valores. Los literales flotantes residen en
+\texttt{.data}; los resultados calculados se alojan en memoria dinámica. La
+ampliación \texttt{integer} $\rightarrow$ \texttt{float} se realiza al almacenar en
+un destino flotante, al pasar parámetros y al devolver valores de ese tipo.
+
+\subhead{Rangos y aritmética.}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Los literales enteros deben estar entre $-2\,147\,483\,648$ y
+        $2\,147\,483\,647$; si no, el backend emite \texttt{MIPS\_INTEGER\_RANGE}.
+  \item La suma, resta, multiplicación y negación enteras conservan los 32 bits
+        bajos del resultado.
+  \item Los dobles deben ser finitos: un literal fuera de rango se diagnostica al
+        compilar (\texttt{MIPS\_FLOAT\_RANGE}) y un resultado no finito se
+        reporta al ejecutar, en lugar de propagarse como infinito o NaN.
+  \item La división produce un resultado flotante; la división o el resto por
+        cero producen un error de ejecución capturable con \texttt{try/catch}.
+\end{itemize}
+
+\subhead{Cadenas, listas y objetos.}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Las cadenas son bytes UTF-8. Las secuencias \texttt{\textbackslash n},
+        \texttt{\textbackslash r}, \texttt{\textbackslash t}, \texttt{\textbackslash 0},
+        \texttt{\textbackslash\textquotedbl} y \texttt{\textbackslash\textbackslash} se
+        decodifican al construir el literal. La salida usa el servicio 15 de MARS
+        (escritura en descriptor) para no partir los caracteres multibyte.
+  \item Una lista tiene una cabecera de 8 bytes con la longitud en el offset 0;
+        el elemento $i$ está en \texttt{base + 8 + 8$\cdot$i}. Una lista anidada
+        guarda referencias a otras listas.
+  \item Un objeto tiene una cabecera de 8 bytes con una referencia al nombre de
+        la clase; un campo está en \texttt{base + 8 + offset\_TAC}, y los campos de
+        la clase base preceden a los de la derivada. Los inicializadores de
+        campos se ejecutan para cada instancia antes del constructor.
+\end{itemize}
+
+La memoria dinámica se obtiene con el servicio 9 (\texttt{sbrk}) del simulador,
+se inicializa en cero y se conserva durante toda la ejecución; esta fase no
+incorpora un recolector de basura.
+
+% ---------------------------------------- 7 CONVENCIÓN DE LLAMADAS
+\section{Convención de llamadas y registros de activación}
+
+\subsection{Organización del programa en rutinas}
+
+Antes de emitir \texttt{.text}, el generador recorre los cuádruplos y separa
+\textbf{rutinas}: el programa principal (\texttt{main}), cada función o método
+delimitado por \texttt{begin\_func}/\texttt{end\_func} y un inicializador
+\texttt{\_\_init\_<Clase>} por cada clase. Una pila de rutinas abiertas permite
+que una función declarada dentro de otra se extraiga como rutina propia, sin
+que su cuerpo se ejecute en el punto de la declaración. Así las funciones pueden
+declararse antes o después de sus llamadas.
+
+\subsection{Registro de activación físico}
+
+Cada rutina reserva un frame alineado a 8 bytes. \texttt{\$fp} apunta a su
+inicio y \texttt{\$sp} delimita el espacio de la activación y de las llamadas
+que realiza. La cabecera ocupa 64 bytes:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}rL{10.4cm}@{}}
+\toprule
+\textbf{Offset desde \texttt{\$fp}} & \textbf{Contenido} \\
+\midrule
+0 & \texttt{\$fp} anterior: \textbf{enlace de control}. \\
+4 & Frame del padre léxico: \textbf{enlace de acceso}. \\
+8 & Dirección de retorno \texttt{\$ra}. \\
+12--40 & Valores preservados de \texttt{\$s0} a \texttt{\$s7}. \\
+44 & Manejador de errores activo al entrar en la rutina. \\
+48 & Carga útil del receptor \texttt{this}, cuando existe. \\
+52 & Etiqueta del receptor. \\
+56--63 & Reservado. \\
+64 en adelante & Slots de 8 bytes para parámetros copiados, locales y temporales. \\
+\bottomrule
+\end{tabular}
+\caption{Cabecera del registro de activación físico.}
+\end{table}
+
+El tamaño del frame es $64 + 8 \cdot n$, donde $n$ es el número de nombres
+distintos (variables locales, parámetros y temporales) que la rutina usa. Cada
+nombre recibe un slot estable en el orden en que aparece, de modo que un valor
+sacado de un registro siempre tiene dónde guardarse. El generador publica estos
+datos en \texttt{MipsFrame}: \texttt{frame\_size}, \texttt{parameter\_bytes},
+\texttt{local\_bytes}, \texttt{temporary\_bytes} y \texttt{saved\_register\_bytes}
+(los 64 bytes de cabecera).
+
+\subsection{Responsabilidades del llamante}
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Vacía los registros modificados a sus slots (\texttt{flush}).
+  \item Reserva $8 \cdot n$ bytes en la pila y escribe allí los argumentos, de
+        izquierda a derecha; en un método, el receptor precede a los argumentos
+        explícitos. Si el parámetro formal es \texttt{float}, aplica la
+        promoción antes de escribirlo.
+  \item Coloca en \texttt{\$a0} el frame del \textbf{padre léxico} de la rutina
+        destino, recorriendo la cadena de enlaces de acceso desde su propio
+        frame.
+  \item Salta con \texttt{jal} y, al volver, retira el área de argumentos y
+        copia \texttt{\$v0}/\texttt{\$v1} al destino del cuádruplo.
+\end{enumerate}
+
+\subsection{Responsabilidades del llamado}
+
+El prólogo y el epílogo que emite \texttt{Generator::routine} son, para una
+rutina cuyo frame mide \texttt{F} bytes:
+
+\begin{lstlisting}[language=MIPS,caption={Prólogo y epílogo generados para cada rutina.}]
+fn_etiqueta:
+  addiu $sp, $sp, -F       # reserva el frame
+  sw $fp, 0($sp)           # enlace de control
+  sw $a0, 4($sp)           # enlace de acceso recibido del llamante
+  sw $ra, 8($sp)           # dirección de retorno
+  sw $s0, 12($sp)          # ... $s0-$s7 en 12..40
+  lw $t8, __handler
+  sw $t8, 44($sp)          # manejador de errores de entrada
+  move $fp, $sp
+  sw $zero, 64($fp)        # cada slot inicia en null
+  ...
+  # cuerpo: TAC traducido
+  ...
+fn_etiqueta__return:
+  lw $t8, 44($fp)
+  sw $t8, __handler        # restaura el manejador de entrada
+  move $sp, $fp
+  lw $ra, 8($sp)
+  lw $s0, 12($sp)          # ... restaura $s0-$s7
+  lw $fp, 0($sp)
+  addiu $sp, $sp, F
+  jr $ra
+  nop
+\end{lstlisting}
+
+Los parámetros se leen desde el área del llamante, que está justo encima del
+frame: el parámetro $i$ está en \texttt{\$fp + F + 8$\cdot$i} (el índice incluye
+el receptor implícito en los métodos). Los métodos e inicializadores copian el
+receptor a \texttt{\$s0} y al offset 48. El retorno utiliza \texttt{\$v0} para la
+carga útil y \texttt{\$v1} para la etiqueta; todo \texttt{return} salta a la
+etiqueta \texttt{\_\_return} común, y una rutina que termina sin
+\texttt{return} devuelve \texttt{null}.
+
+\subsection{Acceso a datos no locales}
+
+Cuando una instrucción usa una variable de una función exterior, el generador
+calcula su dirección con la rutina \texttt{ancestor}: parte de \texttt{\$fp} y
+sigue el enlace de acceso (offset 4) tantas veces como niveles léxicos haya
+entre la rutina actual y la propietaria del símbolo; luego suma el offset del
+slot en el frame del propietario.
+
+\begin{lstlisting}[language=MIPS,style=sinnumero,caption={Acceso a una variable dos niveles léxicos afuera.}]
+  move $t8, $fp
+  lw $t8, 4($t8)           # frame del padre léxico
+  lw $t8, 4($t8)           # frame del abuelo léxico
+  addiu $t8, $t8, 72       # slot de la variable capturada
+  lw $s1, 0($t8)           # carga útil
+  lw $s2, 4($t8)           # etiqueta
+\end{lstlisting}
+
+El \textbf{padre de definición puede ser distinto del llamante}: una llamada
+entre funciones hermanas o una llamada recursiva recibe en \texttt{\$a0} el
+entorno exterior que le corresponde léxicamente, no el frame de quien la
+invoca. Una función declarada dentro de un método accede a su \texttt{this}
+léxico copiándolo del frame del método, sin convertirse en un método con un
+argumento receptor adicional.
+
+\subsection{Recursividad}
+
+Cada llamada crea una activación independiente: los temporales y variables de
+una llamada recursiva viven en su propio frame y no comparten almacenamiento con
+la activación que la invocó. Los registros \texttt{\$s0}--\texttt{\$s7} y la
+dirección de retorno se preservan en la cabecera, de modo que los valores que
+deben sobrevivir a una llamada (por ejemplo, \texttt{n} en
+\texttt{n * factorial(n - 1)}) se recuperan intactos al volver.
+
+% ------------------------------------------ 8 SELECCIÓN DE INSTRUCCIONES
+\section{Selección de instrucciones}
+
+Cada cuádruplo se traduce en \texttt{Generator::instruction}. Antes de cada
+traducción se emite un comentario \texttt{\# TAC n: ...} con el texto del
+cuádruplo original, de modo que el ensamblador puede leerse en paralelo con el
+TAC.
+
+\begin{longtable}{@{}L{3.6cm}L{10.6cm}@{}}
+\toprule
+\textbf{Operación TAC} & \textbf{Traducción MIPS} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Operación TAC} & \textbf{Traducción MIPS} \\
+\midrule
+\endhead
+\texttt{declare} & Carga el valor por defecto del tipo (\texttt{0},
+\texttt{false} o \texttt{null}) y lo escribe en el destino. \\
+\texttt{assign} & Copia carga útil y etiqueta del origen al destino, con
+promoción a \texttt{float} si el destino lo requiere. \\
+\texttt{add}, \texttt{sub}, \texttt{mul}, \texttt{div}, \texttt{mod} &
+Operandos en \texttt{\$a0}--\texttt{\$a3}; \texttt{jal \_\_add} (etc.). La rutina
+auxiliar decide aritmética entera, flotante o concatenación según las
+etiquetas. \\
+\texttt{eq}, \texttt{ne}, \texttt{lt}, \texttt{le}, \texttt{gt}, \texttt{ge} &
+\texttt{jal \_\_eq} (etc.), sobre \texttt{\_\_compare}: compara números mixtos y
+cadenas por contenido y orden lexicográfico. \\
+\texttt{neg}, \texttt{not} & \texttt{jal \_\_neg} / \texttt{\_\_not}. \\
+\texttt{label} & Vacía registros y emite la etiqueta. \\
+\texttt{goto} & Vacía registros y emite \texttt{j L}; si el salto sale de un
+\texttt{try}, retira antes los manejadores. \\
+\texttt{if\_true}, \texttt{if\_false} & Carga la condición y emite
+\texttt{bne}/\texttt{beq \$a0, \$zero, L}. \\
+\texttt{print} & \texttt{jal \_\_print} y salto de línea con el servicio 4. \\
+\texttt{param}, \texttt{call}, \texttt{call\_method} & Protocolo de llamada de
+la sección~7. \\
+\texttt{param\_in} & Lee el argumento desde \texttt{\$fp + F + 8$\cdot$i}. \\
+\texttt{return} & Valor en \texttt{\$v0}/\texttt{\$v1}, promoción al tipo de
+retorno y salto al epílogo. \\
+\texttt{new\_list}, \texttt{length} & \texttt{jal \_\_new\_list}; lectura de la
+longitud en la cabecera con verificación de \texttt{null}. \\
+\texttt{load\_index}, \texttt{store\_index} & \texttt{jal \_\_index}, que
+verifica límites y devuelve la dirección del elemento. \\
+\texttt{new\_object} & Reserva la cabecera y los campos con
+\texttt{\_\_alloc\_zero}, guarda el nombre de la clase y llama al inicializador
+de la clase. \\
+\texttt{load\_field}, \texttt{store\_field} & Verifica \texttt{null} y accede a
+\texttt{base + 8 + offset}. \\
+\texttt{try\_begin}, \texttt{try\_end}, \texttt{catch} & Apila o retira un
+registro de manejador (sección~10). \\
+\bottomrule
+\caption{Traducción de cada familia de cuádruplos.}
+\end{longtable}
+
+Las operaciones \texttt{begin\_program}, \texttt{end\_program},
+\texttt{capture} y \texttt{static\_link} no emiten código: su información ya
+quedó reflejada en la organización de rutinas y en los enlaces de acceso. Una
+operación sin traducción produce el diagnóstico
+\texttt{MIPS\_UNSUPPORTED\_TAC} en lugar de un ensamblador incompleto.
+
+\subsection{Ejemplo: una suma}
+
+Para el cuádruplo \texttt{\%t0 = \%a\#2 add \%b\#3} dentro de una función, con
+los registros vacíos, el generador emite:
+
+\begin{lstlisting}[language=MIPS,caption={Traducción de una suma (offsets ilustrativos).}]
+  # TAC 4: %t0 = %a#2 + %b#3
+  addiu $t8, $fp, 64       # getReg(%a#2): par $s1/$s2
+  lw $s1, 0($t8)
+  lw $s2, 4($t8)
+  move $a0, $s1
+  move $a1, $s2
+  addiu $t8, $fp, 72       # getReg(%b#3): par $s3/$s4
+  lw $s3, 0($t8)
+  lw $s4, 4($t8)
+  move $a2, $s3
+  move $a3, $s4
+  jal __add                # aritmética según etiquetas
+  nop
+  move $s1, $v0            # getReg(%t0): el destino queda en registro
+  move $s2, $v1            # y se marca como modificado
+\end{lstlisting}
+
+El resultado no se escribe en memoria de inmediato: queda en el par
+\texttt{\$s1}/\texttt{\$s2} marcado como modificado y solo se vuelca a su slot
+si el par se necesita para otro valor o antes de una llamada o un salto.
+
+\subsection{Entorno de ejecución}
+
+Al final de \texttt{.text} el generador agrega un conjunto de rutinas auxiliares
+escritas en ensamblador. Concentran las operaciones que dependen de la
+etiqueta de tipo y mantienen compacto el código de cada cuádruplo:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{4.4cm}L{9.8cm}@{}}
+\toprule
+\textbf{Rutina} & \textbf{Responsabilidad} \\
+\midrule
+\texttt{\_\_alloc\_zero} & Reserva memoria con \texttt{sbrk}, alineada a 8 y en cero. \\
+\texttt{\_\_new\_list}, \texttt{\_\_index} & Creación de listas y cálculo de
+dirección con verificación de límites. \\
+\texttt{\_\_add} \dots{} \texttt{\_\_mod}, \texttt{\_\_to\_float} &
+Aritmética entera y flotante, promoción y empaquetado de dobles. \\
+\texttt{\_\_compare}, \texttt{\_\_eq} \dots{} \texttt{\_\_ge} & Comparación
+numérica mixta y de cadenas. \\
+\texttt{\_\_concat} & Concatenación de cadenas UTF-8. \\
+\texttt{\_\_print}, \texttt{\_\_print\_list} & Impresión de cada tipo, incluidas
+listas anidadas, objetos y \texttt{null}. \\
+\texttt{\_\_raise}, \texttt{\_\_uncaught} & Lanzamiento de errores y
+terminación con código 2 si nadie los captura. \\
+\bottomrule
+\end{tabular}
+\caption{Rutinas auxiliares del entorno de ejecución.}
+\end{table}
+
+El segmento \texttt{.data} contiene el manejador activo, un slot por variable
+global (\texttt{\_\_global\_<id>}), los literales de cadena
+(\texttt{\_\_str\_n}) y flotantes (\texttt{\_\_flt\_n}) sin duplicados, y los
+mensajes del entorno.
+
+% ------------------------------------------ 9 ASIGNACIÓN DE REGISTROS
+\section{Asignación de registros}
+
+\subsection{Registros disponibles}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{3.8cm}L{10.4cm}@{}}
+\toprule
+\textbf{Registros} & \textbf{Uso} \\
+\midrule
+\texttt{\$s1/\$s2}, \texttt{\$s3/\$s4}, \texttt{\$s5/\$s6} & Tres pares de la
+caché de valores: carga útil y etiqueta. \\
+\texttt{\$s0} & Receptor \texttt{this} de la rutina. \\
+\texttt{\$a0}--\texttt{\$a3} & Operandos de las rutinas auxiliares; \texttt{\$a0}
+transporta además el enlace de acceso en las llamadas. \\
+\texttt{\$v0}/\texttt{\$v1} & Resultado de rutinas y funciones. \\
+\texttt{\$t0}--\texttt{\$t9} & Registros de trabajo para direcciones y rutinas
+auxiliares. \\
+\texttt{\$fp}, \texttt{\$sp}, \texttt{\$ra} & Frame, pila y retorno. \\
+\bottomrule
+\end{tabular}
+\caption{Asignación fija de los registros MIPS.}
+\end{table}
+
+\subsection{Política de \texttt{getReg}}
+
+El generador mantiene un \textbf{descriptor por par de registros}: qué valor
+contiene, si está modificado respecto de su slot (\emph{dirty}) y cuándo se usó
+por última vez. \texttt{getReg(v)} aplica, en orden:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Si algún par ya contiene \texttt{v}, lo reutiliza sin emitir carga.
+  \item Si hay un par vacío, lo elige.
+  \item Si no, elige el \textbf{menos recientemente usado} (LRU).
+  \item Si el par elegido está modificado, emite un \emph{spill}: guarda carga
+        útil y etiqueta en el slot estable del valor anterior.
+  \item Si \texttt{v} se va a leer, lo carga desde su slot o desde el literal.
+\end{enumerate}
+
+\begin{lstlisting}[language=C++,caption={Núcleo de \texttt{getReg} en \texttt{mips\_generator.cpp}.}]
+int Generator::getReg(const std::string &v, bool reading, int avoid) {
+  for (int n = 0; n < 3; ++n)
+    if (cache[n].value == v && !v.empty()) { cache[n].age = ++age; ... return n; }
+  int n = -1;
+  for (int j = 0; j < 3; ++j) if (j != avoid && cache[j].value.empty()) { n = j; break; }
+  if (n < 0) for (int j = 0; j < 3; ++j)
+    if (j != avoid && (n < 0 || cache[j].age < cache[n].age)) n = j;
+  spill(n); cache[n] = {v, false, ++age};
+  if (reading) load(v, p(n), k(n));
+  return n;
+}
+\end{lstlisting}
+
+El parámetro \texttt{avoid} impide que el segundo operando de una operación
+binaria desaloje al primero. Antes de cada llamada, etiqueta y salto se ejecuta
+\texttt{flush}: se vuelcan los pares modificados y se invalidan los
+descriptores, de modo que la memoria refleja los valores que deben estar
+disponibles en cualquier camino de control que converja en ese punto.
+
+\subsection{Relación con los temporales del TAC}
+
+La asignación física es independiente del reciclaje de nombres \texttt{\%tN} que
+realiza el TAC. Un mismo nombre temporal puede representar valores distintos en
+instrucciones sucesivas; como la etiqueta de tipo viaja con el valor, el
+reciclaje no confunde al backend. Cada nombre tiene un único slot por frame, así
+que la presión de registros se resuelve con \emph{spills} y no requiere
+reservar memoria adicional.
+
+\subsection{Métricas}
+
+\texttt{MipsResult} expone \texttt{instruction\_count} (instrucciones del
+ensamblador generado, incluido el entorno), \texttt{register\_allocations}
+(selecciones de pares hechas por \texttt{getReg}) y \texttt{spills} (guardados
+efectivos). Estas métricas describen el código estático; no son el número
+dinámico de instrucciones que ejecuta MARS. El IDE las muestra en la pestaña
+\emph{Código MIPS}.
+
+Esta es una asignación \textbf{local y conservadora con respaldo en pila}: no
+intenta una asignación global por coloreo de grafos, que el enunciado no exige,
+y privilegia la corrección en llamadas y en los puntos donde convergen caminos
+de control.
+
+% ------------------------------------------ 10 ERRORES Y EXCEPCIONES
+\section{Errores de ejecución y \texttt{try/catch}}
+
+La fase anterior conservaba \texttt{try/catch} como operaciones abstractas
+porque no existía un ABI de excepciones. Esta fase lo define. La palabra
+\texttt{\_\_handler} en \texttt{.data} apunta al manejador activo. Un
+\texttt{try\_begin} reserva 64 bytes en la pila y guarda allí:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item el manejador anterior (para encadenar manejadores anidados);
+  \item la etiqueta del \texttt{catch};
+  \item \texttt{\$fp} y \texttt{\$sp} en el momento de entrar al \texttt{try};
+  \item los registros \texttt{\$s0}--\texttt{\$s7}.
+\end{itemize}
+
+Cuando una rutina auxiliar detecta un error (división por cero, índice fuera de
+rango, referencia nula, resultado no finito) salta a \texttt{\_\_raise}, que
+restaura \texttt{\$fp}, \texttt{\$sp} y los registros del manejador activo, deja
+el mensaje como valor del \texttt{catch} y salta a su etiqueta, aunque el error
+haya ocurrido varias llamadas más abajo. Si no hay manejador,
+\texttt{\_\_uncaught} imprime \emph{Error de ejecución:} seguido del mensaje y
+termina con el servicio 17 y código 2.
+
+Para que los manejadores no queden colgados, cada frame guarda el manejador de
+entrada (offset 44) y lo restaura en el epílogo, y los saltos que salen de un
+\texttt{try} ---\texttt{return}, \texttt{break}, \texttt{continue}--- retiran
+antes los registros de manejador que abandonan.
+
+% ------------------------------------------ 11 MARS
+\section{Integración con MARS y código máquina}
+
+\subsection{Preparación del simulador}
+
+\texttt{scripts/setup\_mars.py} descarga el JAR oficial de MARS 4.5 a
+\texttt{tools/Mars.jar} y verifica su SHA-256. Las variables \texttt{MARS\_JAR}
+y \texttt{JAVA} permiten usar una instalación existente. Los scripts de
+construcción preparan MARS antes de configurar CMake.
+
+\subsection{Ejecución}
+
+\texttt{mips\_runtime.py} ejecuta MARS sin interfaz gráfica:
+
+\begin{lstlisting}[language=bash,caption={Comando de referencia de MARS.}]
+java -jar tools/Mars.jar nc sm ae65 se70 1000000 programa.asm
+\end{lstlisting}
+
+\texttt{nc} elimina el aviso inicial, \texttt{sm} comienza en la etiqueta global
+\texttt{main}, \texttt{ae65} y \texttt{se70} asignan códigos de salida distintos
+a los errores de ensamblado y de simulación, y el entero limita los pasos
+ejecutados (entre 32 y 10\,000\,000), lo que protege al IDE frente a ciclos
+infinitos. El reporte distingue \texttt{assembly} de \texttt{execution} y
+conserva \texttt{stdout}, \texttt{stderr}, \texttt{returncode},
+\texttt{timed\_out} y \texttt{step\_limit}.
+
+\subsection{Código máquina}
+
+El adaptador puede ensamblar sin ejecutar y empaquetar el resultado en un ZIP:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{4.0cm}L{10.2cm}@{}}
+\toprule
+\textbf{Archivo} & \textbf{Contenido} \\
+\midrule
+\texttt{program.asm} & Ensamblador del programa y de su entorno de ejecución. \\
+\texttt{program.text.bin} & Volcado binario del segmento de instrucciones
+ensambladas. \\
+\texttt{program.data.bin} & Volcado binario del segmento de datos iniciales. \\
+\texttt{manifest.json} & Arquitectura, simulador, direcciones y tamaños de
+segmentos, comando de ejecución. \\
+\texttt{LEEME.txt} & Instrucciones para abrir y ejecutar el programa en MARS. \\
+\bottomrule
+\end{tabular}
+\caption{Contenido del paquete de código máquina.}
+\end{table}
+
+Los binarios son volcados sin cabecera ELF; para reproducir la ejecución se usa
+\texttt{program.asm}, que permite a MARS reconstruir direcciones, datos y
+código de forma coherente.
+
+% ------------------------------------------ 12 IDE
+\section{Interfaz gráfica (IDE)}
+
+El IDE es la misma aplicación web servida por Flask de las fases anteriores. El
+botón principal ahora se llama \emph{Compilar programa} y la barra de fases
+muestra \emph{ANTLR $\rightarrow$ semántica $\rightarrow$ TAC $\rightarrow$
+ensamblador MIPS32 $\rightarrow$ MARS}. La fase agrega:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Pestaña \emph{Código MIPS}}: el ensamblador generado, sus
+        métricas (instrucciones, selecciones de registros y \emph{spills}), la
+        tabla de frames físicos y botones para copiar y descargar el
+        \texttt{.asm} o el ZIP de código máquina.
+  \item \textbf{Botón \emph{Ejecutar en MIPS} y pestaña \emph{Consola MIPS}}:
+        ensambla y ejecuta el programa en MARS y muestra la salida estándar, los
+        errores de ensamblado o de ejecución y el código de retorno, separados
+        de los diagnósticos del compilador.
+  \item \textbf{Estado del simulador}: indica si Java y \texttt{Mars.jar} están
+        disponibles antes de intentar ejecutar.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{3.6cm}L{10.6cm}@{}}
+\toprule
+\textbf{Ruta} & \textbf{Función} \\
+\midrule
+\texttt{POST /api/analyze} & Compila y devuelve el JSON de todas las fases. \\
+\texttt{GET /api/simulator} & Disponibilidad de Java y MARS. \\
+\texttt{POST /api/run} & Compila y ejecuta en MARS; devuelve salida y errores. \\
+\texttt{POST /api/build} & Ensambla y devuelve el ZIP de código máquina. \\
+\texttt{POST /api/tests} & Ejecuta la batería C++ desde la interfaz. \\
+\bottomrule
+\end{tabular}
+\caption{Rutas del adaptador Flask.}
+\end{table}
+
+Si el programa tiene errores léxicos, sintácticos o semánticos, la tarjeta
+\emph{Código MIPS} indica \emph{Omitido} y la ejecución no se intenta: el IDE
+nunca envía a MARS código de un programa rechazado.
+
+% ----------------------------------------------------- 13 BATERÍA DE PRUEBAS
+\section{Batería de pruebas}
+
+La fase se verifica en tres niveles complementarios, con \textbf{193 casos
+automatizados}:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{5.0cm}rL{7.6cm}@{}}
+\toprule
+\textbf{Batería} & \textbf{Casos} & \textbf{Qué verifica} \\
+\midrule
+\texttt{compiscript\_tests.cpp} & 115 & Semántica, TAC y omisión de MIPS ante
+errores, con el código de diagnóstico exacto. \\
+\texttt{mips\_execution\_tests.py} & 66 & Genera ensamblador desde
+\texttt{.cps}, lo ejecuta en MARS y compara la salida con un resultado
+esperado: 54 válidos y 12 errores esperados. \\
+\texttt{ide\_integration\_tests.py} & 12 & Rutas Flask con el compilador y MARS
+reales. \\
+\midrule
+\textbf{Total} & \textbf{193} & \\
+\bottomrule
+\end{tabular}
+\caption{Baterías de pruebas del proyecto.}
+\end{table}
+
+\subsection{Pruebas de ejecución en MARS}
+
+La batería \texttt{mips\_execution\_tests.py} \textbf{no interpreta Compiscript
+ni TAC}: los resultados observados proceden del ensamblador ejecutado por MARS.
+Las salidas esperadas se calcularon a partir de los programas fuente, no del
+TAC, y cada caso válido exige además un volcado binario no vacío de
+\texttt{.text}, para comprobar que el ensamblado produjo código máquina. Los
+casos negativos distinguen un diagnóstico esperado de un fallo inesperado del
+ensamblador.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{4.6cm}rL{8.0cm}@{}}
+\toprule
+\textbf{Categoría} & \textbf{Casos} & \textbf{Ejemplos} \\
+\midrule
+Proceso completo & 1 & Programa vacío. \\
+Expresiones & 5 & Precedencia, promoción flotante, comparaciones mixtas, resto
+flotante. \\
+Control de flujo & 6 & Cortocircuito con efectos laterales, ciclos,
+\texttt{break}/\texttt{continue} anidados, \texttt{switch}. \\
+Llamadas y retornos & 8 & Factorial, Fibonacci, recursión mutua, seis
+parámetros, retorno flotante. \\
+Asignación de registros & 2 & Temporales vivos alrededor de llamadas, presión
+con doce argumentos. \\
+Orden de evaluación & 3 & Argumentos de izquierda a derecha, operando
+conservado ante efecto lateral. \\
+Ámbitos y closures & 7 & Sombreado, dos niveles léxicos, funciones hermanas,
+\texttt{this} en función anidada. \\
+Cadenas & 4 & Concatenación, orden lexicográfico, escapes, UTF-8. \\
+Listas & 5 & \texttt{foreach}, listas anidadas, paso por referencia. \\
+Clases y objetos & 7 & Constructores, herencia, inicializadores, receptor
+preservado. \\
+Algoritmos del compilador & 1 & \texttt{algoritmo\_compilador.cps}. \\
+Errores de compilación & 7 & Léxico, sintáctico y semántico impiden generar
+ensamblador; aridad. \\
+Errores de generación & 1 & Literal entero fuera de rango MIPS32. \\
+Errores de ejecución & 4 & División por cero, índices fuera de rango, referencia
+nula. \\
+Excepciones & 5 & \texttt{try/catch} entre llamadas, manejadores anidados,
+\texttt{return} y \texttt{continue} dentro de \texttt{try}. \\
+\midrule
+\textbf{Total} & \textbf{66} & \\
+\bottomrule
+\end{tabular}
+\caption{Casos de ejecución en MARS por categoría.}
+\end{table}
+
+\subsection{Prueba de fuego: algoritmos del propio compilador}
+
+\texttt{algoritmo\_compilador.cps} adapta a Compiscript dos algoritmos del
+repositorio y recorre con ellos el pipeline completo hasta MARS:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \texttt{DFABuilder::bestRule} (\texttt{backend/src/dfa\_builder.cpp}):
+        elige la regla aceptante de menor prioridad y usa cortocircuito para
+        evitar una lectura fuera de rango.
+  \item \texttt{TacGenerator::newTemp} y \texttt{releaseTemp}
+        (\texttt{tac\_generator.cpp}): administran temporales vivos con una pila
+        de libres y contadores de creación, reutilización y máximo vivo.
+\end{itemize}
+
+\begin{lstlisting}[language=Compiscript,caption={Fragmento de \texttt{algoritmo\_compilador.cps}.}]
+function mejorRegla(posiciones: integer[], reglas: integer[], total: integer): integer {
+  let mejor: integer = -1;
+  foreach (posicion in posiciones) {
+    if (posicion < total && reglas[posicion] >= 0) {
+      if (mejor == -1 || reglas[posicion] < mejor) {
+        mejor = reglas[posicion];
+      }
+    }
+  }
+  return mejor;
+}
+\end{lstlisting}
+
+La adaptación usa listas y una clase; la pila tiene capacidad fija de ocho
+posiciones porque el lenguaje no define \texttt{push}, \texttt{pop} ni listas
+redimensionables. No es autocompilación de los archivos C++: la sintaxis
+Compiscript sigue siendo el contrato de entrada. La salida esperada,
+\texttt{2, -1, 7, 0, 1, 0, 2, 2, 3, 2, 3} (un valor por línea), se compara con la
+de MARS.
+
+\subsection{Ejecución de las baterías}
+
+\begin{lstlisting}[language=bash,caption={Ejecución de las tres baterías.}]
+ctest --test-dir build/compiscript --output-on-failure
+python3 backend/tests/mips_execution_tests.py
+python3 backend/tests/mips_execution_tests.py --filter "Llamadas" --json
+python3 backend/tests/ide_integration_tests.py
+\end{lstlisting}
+
+CTest registra la batería MIPS cuando al configurar CMake encuentra Python, Java
+y \texttt{tools/Mars.jar}. Las pruebas del IDE requieren instalar antes
+\texttt{requirements.txt}.
+
+% ------------------------------------------------ 14 COMPILACIÓN Y EJECUCIÓN
+\section{Compilación y ejecución}
+
+\subsection{Requisitos}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item CMake 3.20 o superior.
+  \item Compilador compatible con C++17.
+  \item Java, para la herramienta generadora de ANTLR y para el simulador MARS.
+  \item Python 3.10 o superior con Flask, para el IDE y el adaptador de MARS.
+\end{itemize}
+
+\subsection{Construcción}
+
+Un solo script descarga el JAR de ANTLR si hace falta, regenera el lexer, el
+parser y el Visitor, prepara y verifica MARS, compila el \emph{runtime} C++,
+construye \texttt{compiscript\_cli} y \texttt{compiscript\_tests} y ejecuta las
+baterías C++ y de ejecución MIPS:
+
+\begin{lstlisting}[language=bash,caption={macOS o Linux.}]
+python3 scripts/setup_mars.py
+./scripts/build_compiscript.sh
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash,caption={Windows PowerShell.}]
+py scripts/setup_mars.py
+.\scripts\build_compiscript.ps1
+\end{lstlisting}
+
+\subsection{Ejecución del IDE}
+
+\begin{lstlisting}[language=bash,caption={Servidor del IDE.}]
+python app.py
+\end{lstlisting}
+
+El IDE queda disponible en \texttt{http://127.0.0.1:5050}. Se abre un ejemplo,
+se pulsa \emph{Compilar programa}, se revisa la pestaña \emph{Código MIPS} y se
+pulsa \emph{Ejecutar en MIPS} para ver la salida en la \emph{Consola MIPS}.
+
+\subsection{Uso directo del CLI}
+
+\begin{lstlisting}[language=bash,caption={Generación y ejecución desde la línea de comandos.}]
+./compiscript_cli --file programa.cps --emit-mips -o programa.asm
+python3 scripts/run_mips.py programa.cps -o programa.asm
+python3 scripts/run_mips.py programa.asm
+python3 scripts/run_mips.py programa.cps --assemble-only --package programa.zip
+\end{lstlisting}
+
+Sin \texttt{--emit-mips}, el CLI conserva la salida JSON con los bloques
+\texttt{tokens}, \texttt{tree}, \texttt{semantic}, \texttt{tac} y \texttt{mips}
+(\texttt{text}, \texttt{diagnostics}, \texttt{frames}, \texttt{instruction\_count},
+\texttt{register\_allocations}, \texttt{spills}). \texttt{run\_mips.py} acepta
+\texttt{--json} para el reporte estructurado, \texttt{--max-steps N} para el
+límite de instrucciones y \texttt{--delayed-branches} para activar los saltos
+retardados del simulador.
+
+% ----------------------------------------------- 15 DECISIONES Y SUPUESTOS
+\section{Decisiones, supuestos y limitaciones}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Solo se genera MIPS para programas válidos.} Léxico, sintaxis,
+        semántica y TAC deben terminar sin errores; si no, el bloque
+        \texttt{mips} se marca como omitido.
+  \item \textbf{Valores con etiqueta de tipo.} Cada slot mide 8 bytes (carga útil
+        y etiqueta). Duplica el espacio de un entero, pero permite reciclar
+        temporales, imprimir cualquier valor y capturar errores de tipo
+        desconocido.
+  \item \textbf{Dobles por referencia.} Mantienen uniforme el tamaño del slot a
+        costa de una reserva dinámica por resultado flotante calculado.
+  \item \textbf{Despacho estático.} Los métodos se resuelven con el símbolo
+        determinado por el análisis semántico y se llaman directamente; la
+        herencia conserva campos y búsqueda de miembros, sin tabla virtual.
+  \item \textbf{Closures limitados a frames activos.} Las funciones anidadas
+        acceden a los frames léxicos mientras están en la pila; la gramática no
+        define funciones de primera clase que escapen de su activación.
+  \item \textbf{Saltos sin retardo.} Se emite un \texttt{nop} tras cada salto,
+        de modo que el código es correcto con o sin la opción
+        \texttt{--delayed-branches} de MARS.
+  \item \textbf{Orden de evaluación.} Los argumentos se evalúan de izquierda a
+        derecha y cada resultado se conserva antes de evaluar el siguiente.
+\end{itemize}
+
+\paragraph{Limitaciones conocidas.}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item La asignación de registros es local: los descriptores se invalidan en
+        cada etiqueta, salto y llamada, lo que produce cargas y \emph{spills}
+        que una asignación global evitaría.
+  \item No hay optimización: no se pliegan constantes y cada operación
+        aritmética llama a una rutina auxiliar que inspecciona las etiquetas,
+        aun cuando los tipos son conocidos en compilación.
+  \item No hay recolector de basura: la memoria dinámica se conserva hasta que
+        termina el programa.
+  \item La pila de manejadores y la memoria dinámica dependen de los servicios de
+        MARS; ejecutar en hardware real requeriría sustituir esos servicios.
+\end{itemize}
+
+% --------------------------------------------------- 16 RÚBRICA
+\section{Correspondencia con la rúbrica}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}L{3.6cm}rL{9.4cm}@{}}
+\toprule
+\textbf{Componente} & \textbf{Pts} & \textbf{Evidencia en el proyecto} \\
+\midrule
+Llamadas y retornos & 20 &
+Registros de activación físicos con enlaces de control y acceso, prólogo y
+epílogo, paso de parámetros por pila, retorno en \texttt{\$v0}/\texttt{\$v1},
+preservación de registros (sección~7); 8 casos de llamadas y 7 de ámbitos y
+closures ejecutados en MARS (sección~13). \\
+Asignación de registros & 20 &
+\texttt{getReg} con descriptores, LRU, \emph{spills} y \texttt{flush} en
+fronteras de control; métricas observables en el JSON y el IDE (sección~9);
+casos de presión de registros y temporales vivos entre llamadas. \\
+Código MIPS & 60 &
+\texttt{MipsGenerator} de 1\,012 líneas que traduce todas las familias de TAC
+(sección~8), entorno de ejecución, \texttt{try/catch} (sección~10), ejecución
+real en MARS y paquete de código máquina (sección~11); 66 programas comparados
+automáticamente. \\
+\midrule
+\textbf{Total} & \textbf{100} & \\
+\bottomrule
+\end{tabular}
+\caption{Evidencia por componente evaluado.}
+\end{table}
+
+Respecto a los entregables: el repositorio conserva commits individuales por
+integrante (sección~4); las baterías cubren casos exitosos, errores de
+compilación, de generación y de ejecución (sección~13); la arquitectura y las
+instrucciones de ejecución están documentadas (secciones~3 y 14, además de
+\texttt{docs/generacion-mips.md}, \texttt{docs/arquitectura-compiscript.md} y
+\texttt{README.md}); y el IDE compila, descarga y ejecuta los programas
+(sección~12).
+
+% ---------------------------------------------------- 17 CONCLUSIONES
+\section{Conclusiones}
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Trabajar sobre cuádruplos estructurados, y no sobre su texto, permitió
+        que el backend reutilizara toda la información de las fases anteriores:
+        bastó con agregar los tipos de los operandos al TAC para seleccionar
+        instrucciones y coerciones sin volver a analizar el programa.
+  \item Representar cada valor con una etiqueta de tipo resolvió de una sola vez
+        el reciclaje de temporales, la impresión polimórfica y la variable del
+        \texttt{catch}, a cambio de duplicar el tamaño de los slots.
+  \item Separar padre léxico y llamante en el enlace de acceso fue la decisión
+        clave para que funciones anidadas, hermanas y recursivas encontraran su
+        entorno correcto.
+  \item Un \texttt{getReg} local con respaldo en pila es suficiente para producir
+        código correcto en llamadas y en puntos de convergencia, y sus métricas
+        hacen visibles los \emph{spills} que una asignación global eliminaría.
+  \item Ejecutar el código en MARS y comparar la salida con resultados calculados
+        desde el programa fuente convierte la verificación estructural de la fase
+        anterior en una verificación de comportamiento: el compilador produce
+        programas que realmente funcionan.
+\end{enumerate}
+
+% ---------------------------------------------------- 18 REFERENCIAS
+\section{Referencias}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Aho, A., Lam, M., Sethi, R. y Ullman, J. \emph{Compilers: Principles,
+        Techniques, and Tools}. 2.\textordfeminine{} edición, 2006. Secciones
+        7.2.2--7.2.3 (registros de activación y secuencias de llamada),
+        7.3.5--7.3.6 (enlaces de acceso) y 8.6.1--8.6.3 (descriptores de
+        registros, generación de código y \texttt{getReg}).
+  \item Vollmar, K. y Sanderson, P. \emph{MARS: MIPS Assembler and Runtime
+        Simulator}, versión 4.5. Línea de comandos:
+        \url{https://dpetersanderson.github.io/Help/MarsHelpCommand.html}.
+        Servicios del sistema:
+        \url{https://dpetersanderson.github.io/Help/SyscallHelp.html}.
+  \item Parr, T. \emph{The Definitive ANTLR 4 Reference}. Documentación del
+        \emph{target} de C++: \url{https://github.com/antlr/antlr4}.
+  \item Repositorio del proyecto, rama \texttt{Compiladores2-Proyecto3-MIPS}:
+        \url{https://github.com/G1LB3T0/Proyecto1_Compis_Generador_Analizador_Lexico/tree/Compiladores2-Proyecto3-MIPS}.
+  \item Documentación interna del repositorio, en la carpeta \texttt{docs/}:
+        \texttt{generacion-\allowbreak mips.md},
+        \texttt{codigo-\allowbreak intermedio-\allowbreak tac.md},
+        \texttt{arquitectura-\allowbreak compiscript.md} y
+        \texttt{decisiones-\allowbreak compiscript.md}.
+\end{itemize}
+
+\end{document}
