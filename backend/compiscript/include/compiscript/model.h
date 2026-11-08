@@ -119,6 +119,10 @@ struct TacInstruction {
   std::string text;
   size_t line = 0;
   size_t column = 0;
+  // Tipos conservados para la selección de instrucciones y coerciones MIPS.
+  std::string result_type;
+  std::string arg1_type;
+  std::string arg2_type;
 };
 
 // Diseño de un registro de activación relativo al frame pointer. Los enlaces y
@@ -164,17 +168,44 @@ struct TokenInfo {
   size_t column = 0;
 };
 
+// Distribución física MIPS32: slots alineados de ocho bytes (valor y etiqueta).
+struct MipsFrame {
+  int function_symbol_id = -1;
+  int parent_symbol_id = -1;
+  std::string name;
+  std::string label;
+  size_t frame_size = 0;
+  size_t parameter_bytes = 0;
+  size_t local_bytes = 0;
+  size_t temporary_bytes = 0;
+  size_t saved_register_bytes = 64;
+};
+
+struct MipsResult {
+  bool ok = false;
+  bool skipped = false;
+  std::string reason;
+  std::vector<Diagnostic> diagnostics;
+  std::string text;
+  size_t instruction_count = 0;
+  size_t register_allocations = 0;
+  size_t spills = 0;
+  std::vector<MipsFrame> frames;
+};
+
 // Resultado unificado de las fases léxica, sintáctica, semántica y TAC.
 struct AnalysisResult {
   bool ok = false;
   bool syntax_ok = false;
   bool semantic_ok = false;
   bool tac_ok = false;
+  bool mips_ok = false;
   std::string filename;
   std::vector<TokenInfo> tokens;
   std::vector<Diagnostic> syntax_diagnostics;
   SemanticResult semantic;
   TacResult tac;
+  MipsResult mips;
   std::string tree_json = "null";
 };
 
