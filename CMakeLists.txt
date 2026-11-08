@@ -75,3 +75,16 @@ set_target_properties(compiscript_tests PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}"
 )
 add_test(NAME compiscript_semantic_suite COMMAND compiscript_tests)
+
+# La suite MIPS ejecuta el ensamblador en un simulador externo real.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+find_program(COMPISCRIPT_JAVA java)
+set(COMPISCRIPT_MARS_JAR "${CMAKE_SOURCE_DIR}/tools/Mars.jar" CACHE FILEPATH "JAR de MARS para pruebas MIPS")
+if(Python3_Interpreter_FOUND AND COMPISCRIPT_JAVA AND EXISTS "${COMPISCRIPT_MARS_JAR}")
+  add_test(NAME compiscript_mips_execution
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/backend/tests/mips_execution_tests.py"
+      --cli $<TARGET_FILE:compiscript_cli> --mars "${COMPISCRIPT_MARS_JAR}" --java "${COMPISCRIPT_JAVA}")
+  set_tests_properties(compiscript_mips_execution PROPERTIES TIMEOUT 180)
+else()
+  message(STATUS "Pruebas MIPS requieren Python, Java y tools/Mars.jar (python3 scripts/setup_mars.py).")
+endif()
