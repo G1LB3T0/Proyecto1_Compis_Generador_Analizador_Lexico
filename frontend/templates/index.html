@@ -16,7 +16,7 @@
       <div class="brand-mark">C</div>
       <div>
         <h1>Compiscript</h1>
-        <p>ANTLR · Semántica · TAC · C++</p>
+        <p>ANTLR · TAC · MIPS32 · C++</p>
       </div>
     </div>
 
@@ -43,14 +43,16 @@
     </section>
 
     <button class="button primary" id="analyze-button">
-      <span>▶</span> Analizar programa
+      <span>▶</span> Compilar programa
     </button>
+    <button class="button execute" id="run-button">Ejecutar en MIPS</button>
     <button class="button tests" id="tests-button">Ejecutar batería de pruebas</button>
 
     <div class="pipeline-note">
       <strong>Pipeline activo</strong>
-      <span>Lexer ANTLR → Parser ANTLR → árbol → Visitor semántico → tabla extendida → TAC</span>
+      <span>ANTLR → semántica → TAC → ensamblador MIPS32 → MARS</span>
     </div>
+    <div id="simulator-status" class="simulator-status">Comprobando simulador…</div>
     <div id="status" class="status">Listo para analizar.</div>
   </aside>
 
@@ -58,7 +60,7 @@
     <header class="topbar">
       <div>
         <h2>Compilador de Compiscript</h2>
-        <p>Escribe Compiscript y revisa el análisis y su código intermedio.</p>
+        <p>Compila Compiscript a MIPS32 y ejecuta el ensamblador en MARS.</p>
       </div>
       <div class="runtime-badge"><span></span> C++17</div>
     </header>
@@ -77,6 +79,8 @@
       <nav class="tabs" aria-label="Resultados">
         <button class="tab active" data-panel="diagnostics-panel">Diagnósticos <span id="diagnostic-count">0</span></button>
         <button class="tab" data-panel="tac-panel">Código TAC <span id="tac-count">0</span></button>
+        <button class="tab" data-panel="mips-panel">Código MIPS <span id="mips-count">0</span></button>
+        <button class="tab" data-panel="execution-panel">Consola MIPS</button>
         <button class="tab" data-panel="tree-panel">Árbol sintáctico</button>
         <button class="tab" data-panel="symbols-panel">Tabla de símbolos</button>
         <button class="tab" data-panel="types-panel">Sistema de tipos</button>
@@ -87,6 +91,8 @@
 
       <div id="diagnostics-panel" class="result-panel active"></div>
       <div id="tac-panel" class="result-panel"></div>
+      <div id="mips-panel" class="result-panel"></div>
+      <div id="execution-panel" class="result-panel"><p class="empty-result">Compila y ejecuta un programa para ver su salida en MARS.</p></div>
       <div id="tree-panel" class="result-panel"></div>
       <div id="symbols-panel" class="result-panel"></div>
       <div id="types-panel" class="result-panel"></div>

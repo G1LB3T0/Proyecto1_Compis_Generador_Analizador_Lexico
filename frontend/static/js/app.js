@@ -3,6 +3,8 @@ const editor = document.getElementById('source-editor');
 const filenameInput = document.getElementById('filename');
 const statusBox = document.getElementById('status');
 let latestResult = null;
+let compiledSource = null;
+let compiledFilename = null;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const treeGraph = {
   root: null,
@@ -21,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const select = document.getElementById('example-select');
   if (select.value) await loadExample(select.value);
   updateCursor();
+  refreshSimulator();
 });
 
 // Eventos principales del editor y administración de archivos .cps.
@@ -34,6 +37,7 @@ function bindEvents() {
   document.getElementById('save-file').addEventListener('click', saveFile);
   document.getElementById('download-file').addEventListener('click', downloadFile);
   document.getElementById('analyze-button').addEventListener('click', analyze);
+  document.getElementById('run-button').addEventListener('click', executeMips);
   document.getElementById('tests-button').addEventListener('click', runTests);
   filenameInput.addEventListener('input', updateTabName);
   editor.addEventListener('keyup', updateCursor);
@@ -155,25 +159,32 @@ function downloadFile() {
 async function analyze() {
   const button = document.getElementById('analyze-button');
   button.disabled = true;
-  setStatus('ANTLR y el Visitor C++ están analizando…');
+  document.getElementById('run-button').disabled = true;
+  setStatus('Compilando Compiscript → TAC → MIPS32…');
+  const source = editor.value;
+  const filename = normalizedFilename();
   try {
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({filename: normalizedFilename(), source: editor.value}),
+      body: JSON.stringify({filename, source}),
     });
     const data = await response.json();
     if (data.error) throw new Error(data.error);
     latestResult = data;
+    compiledSource = source;
+    compiledFilename = filename;
     renderResult(data);
     setStatus(
-      data.ok ? 'Compilación y generación TAC completadas.' : `Compilación finalizada con ${data.diagnostics.length} diagnóstico(s).`,
+      data.ok ? 'Compilación completada: TAC y MIPS32 generados.' : `Compilación finalizada con ${data.diagnostics.length} diagnóstico(s).`,
       data.ok ? 'success' : 'error',
     );
+    return data;
   } catch (error) {
     setStatus(error.message || 'No se pudo ejecutar el análisis.', 'error');
   } finally {
     button.disabled = false;
+    document.getElementById('run-button').disabled = false;
   }
 }
 
@@ -181,6 +192,7 @@ function renderResult(data) {
   renderSummary(data);
   renderDiagnostics(data.diagnostics || []);
   renderTac(data.tac || {});
+  renderMips(data.mips || {});
   renderTree(data.tree);
   renderSymbols(data.semantic || {});
   renderTypeSystem(data.semantic || {});
@@ -198,6 +210,7 @@ function renderSummary(data) {
     ['Sintaxis', data.syntax_ok ? 'Correcta' : 'Con errores', data.syntax_ok],
     ['Semántica', data.semantic_ok ? 'Correcta' : (data.semantic?.skipped ? 'Omitida' : 'Con errores'), data.semantic_ok],
     ['Código TAC', data.tac_ok ? 'Generado' : (data.tac?.skipped ? 'Omitido' : 'Con errores'), data.tac_ok],
+    ['Código MIPS', data.mips_ok ? 'Generado' : (data.mips?.skipped ? 'Omitido' : 'Con errores'), data.mips_ok],
     ['Tokens', summary.tokens, true],
     ['Símbolos', summary.symbols, true],
     ['Ámbitos', summary.scopes, true],
@@ -222,7 +235,7 @@ function renderDiagnostics(diagnostics) {
   if (!diagnostics.length) {
     const banner = document.createElement('div');
     banner.className = 'success-banner';
-    banner.textContent = '✓ No se encontraron errores y el código TAC fue generado correctamente.';
+    banner.textContent = '✓ Compilación completada. Código TAC y ensamblador MIPS32 generados correctamente.';
     panel.append(banner);
     return;
   }
@@ -335,6 +348,141 @@ function renderTac(tac) {
     frame.captured_symbols.length ? frame.captured_symbols.map(id => `#${id}`).join(', ') : '—',
   ]));
   panel.append(frameTable);
+}
+
+async function refreshSimulator() {
+  const label = document.getElementById('simulator-status');
+  try {
+    const response = await fetch('/api/simulator');
+    const data = await response.json();
+    label.textContent = data.available ? `${data.simulator} · disponible` : data.error;
+    label.classList.toggle('available', data.available);
+  } catch {
+    label.textContent = 'No fue posible comprobar MARS.';
+  }
+}
+
+function downloadText(content, filename) {
+  const url = URL.createObjectURL(new Blob([content], {type: 'text/plain;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function downloadMips() {
+  let data = latestResult;
+  if (!data || compiledSource !== editor.value || compiledFilename !== normalizedFilename()) data = await analyze();
+  if (!data?.mips_ok) return setStatus('Corrige los errores antes de descargar MIPS.', 'error');
+  downloadText(data.mips.text, normalizedFilename().replace(/\.cps$/, '.asm'));
+  setStatus('Ensamblador MIPS descargado.', 'success');
+}
+
+async function downloadMachineCode() {
+  setStatus('MARS está ensamblando los segmentos de código máquina…');
+  try {
+    const response = await fetch('/api/build', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: normalizedFilename(), source: editor.value}),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      if (data.analysis) renderResult(data.analysis);
+      throw new Error(data.error || 'No fue posible ensamblar el programa.');
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = normalizedFilename().replace(/\.cps$/, '.mips.zip');
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus('Paquete MIPS ensamblado y descargado.', 'success');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+}
+
+function renderMips(mips) {
+  const panel = document.getElementById('mips-panel');
+  panel.replaceChildren();
+  document.getElementById('mips-count').textContent = mips.instruction_count || 0;
+  if (!mips.ok) {
+    panel.append(emptyMessage(mips.reason || 'No fue posible generar ensamblador MIPS.'));
+    return;
+  }
+  panel.append(semanticNote('Ensamblador MIPS32', 'Código generado desde el TAC, listo para ensamblar y ejecutar en MARS.'));
+  const toolbar = document.createElement('div');
+  toolbar.className = 'mips-toolbar';
+  for (const [label, action] of [['Descargar .asm', downloadMips], ['Ejecutar en MARS', executeMips], ['Descargar código máquina', downloadMachineCode]]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tree-control';
+    button.textContent = label;
+    button.addEventListener('click', action);
+    toolbar.append(button);
+  }
+  panel.append(toolbar);
+  const metrics = document.createElement('div');
+  metrics.className = 'tac-metrics';
+  metrics.append(testMetric(mips.instruction_count, 'Instrucciones MIPS'),
+    testMetric(mips.register_allocations, 'Asignaciones de registros'),
+    testMetric(mips.spills, 'Guardados en pila'), testMetric((mips.frames || []).length, 'Registros de activación'));
+  const code = document.createElement('pre');
+  code.className = 'tac-code mips-code';
+  code.textContent = mips.text;
+  panel.append(metrics, code);
+  panel.append(subsectionTitle('Memoria de funciones MIPS', 'Distribución concreta de los registros de activación usados por el ensamblador.'));
+  const table = makeTable(['Función', 'Etiqueta', 'Frame total', 'Parámetros', 'Locales', 'Temporales', 'Cabecera']);
+  for (const frame of mips.frames || []) addRow(table.tBodies[0], [frame.name, codeCell(frame.label),
+    `${frame.frame_size} B`, `${frame.parameter_bytes} B`, `${frame.local_bytes} B`,
+    `${frame.temporary_bytes} B`, `${frame.saved_register_bytes} B`]);
+  panel.append(table);
+}
+
+async function executeMips() {
+  const button = document.getElementById('run-button');
+  button.disabled = true;
+  document.getElementById('analyze-button').disabled = true;
+  setStatus('Compilando y ejecutando en MARS…');
+  const source = editor.value;
+  const filename = normalizedFilename();
+  try {
+    const response = await fetch('/api/run', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename, source}),
+    });
+    const data = await response.json();
+    if (data.analysis) {
+      latestResult = data.analysis;
+      compiledSource = source;
+      compiledFilename = filename;
+      renderResult(data.analysis);
+    }
+    const panel = document.getElementById('execution-panel');
+    panel.replaceChildren();
+    const execution = data.execution;
+    const banner = document.createElement('div');
+    banner.className = execution?.ok ? 'success-banner' : 'execution-error';
+    banner.textContent = execution?.ok ? '✓ Programa ensamblado y ejecutado correctamente en MARS.' : (data.error || execution?.error || 'La ejecución no pudo completarse.');
+    panel.append(banner);
+    if (execution) {
+      panel.append(subsectionTitle('Salida del programa', `Simulador: ${execution.simulator} · Código de salida: ${execution.returncode ?? '—'}`));
+      const output = document.createElement('pre');
+      output.className = 'tac-code execution-output';
+      output.textContent = execution.stdout || '(El programa no produjo salida.)';
+      panel.append(output);
+      if (execution.stderr?.trim()) panel.append(testDetail('Mensajes del simulador', execution.stderr, true));
+    }
+    if (data.analysis) selectPanel(data.analysis.mips_ok ? 'execution-panel' : 'diagnostics-panel');
+    if (!data.analysis && data.error) throw new Error(data.error);
+    setStatus(execution?.ok ? 'Ejecución MIPS completada.' : (data.error || execution?.error || 'La ejecución falló.'), execution?.ok ? 'success' : 'error');
+  } catch (error) {
+    setStatus(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    document.getElementById('analyze-button').disabled = false;
+  }
 }
 
 function jumpTo(line, column) {
@@ -965,10 +1113,10 @@ function renderTestReport(resultBox, data) {
   const titleGroup = document.createElement('div');
   const title = document.createElement('h3');
   title.textContent = data.ok
-    ? 'Batería semántica y TAC aprobada'
+    ? 'Batería semántica, TAC y MIPS aprobada'
     : 'La batería encontró fallos';
   const explanation = document.createElement('p');
-  explanation.textContent = 'Incluye casos válidos y fallidos de semántica y generación TAC. Un “error esperado” solo aprueba cuando la fase correcta rechaza u omite la entrada.';
+  explanation.textContent = 'Incluye análisis semántico, TAC y programas ensamblados y ejecutados realmente en MARS. Cada prueba compara el resultado obtenido con el esperado.';
   titleGroup.append(title, explanation);
 
   const actions = document.createElement('div');
@@ -1043,6 +1191,9 @@ function renderTestReport(resultBox, data) {
         testDetail('Resultado esperado', test.expected),
         testDetail('Resultado obtenido', test.actual),
       );
+      if (test.assembly) body.append(testDetail('Ensamblador MIPS ejecutado', test.assembly, true));
+      if (test.stdout) body.append(testDetail('Salida del programa', test.stdout, true));
+      if (test.stderr?.trim()) body.append(testDetail('Mensajes del simulador', test.stderr, true));
       if ((test.codes || []).length) {
         const diagnostics = document.createElement('div');
         diagnostics.className = 'test-detail test-diagnostics';
@@ -1079,7 +1230,7 @@ async function runTests() {
   const resultBox = document.getElementById('tests-result');
   button.disabled = true;
   resultBox.className = 'tests-result';
-  resultBox.textContent = 'Ejecutando batería C++…';
+  resultBox.textContent = 'Ejecutando pruebas C++ y programas MIPS en MARS…';
   try {
     const response = await fetch('/api/tests', {method: 'POST'});
     const data = await response.json();
