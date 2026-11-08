@@ -1,20 +1,23 @@
-# Compiscript — Generador de código intermedio TAC
+# Compiscript — Compilador TAC y MIPS32
 
-Proyecto 2 de Compiladores 2 desarrollado por:
+Proyecto 3 de Compiladores 2, construido sobre la fase semántica y TAC,
+desarrollado por:
 
 - Joel Jaquez — #23369
 - Luis Gonzalez — #23353
 
 Proyecto de **Compiladores 2** que implementa el frontend y la generación de
-código intermedio de Compiscript con ANTLR 4.13.2 y C++17. El sistema reconoce
+código intermedio y MIPS de Compiscript con ANTLR 4.13.2 y C++17. El sistema reconoce
 archivos `.cps`, construye el árbol sintáctico, ejecuta el análisis semántico y,
 si el programa es válido, genera código de tres direcciones (TAC), temporales,
-layout de símbolos y registros de activación en un IDE web.
+layout de símbolos y registros de activación. Un backend traduce el TAC a
+ensamblador MIPS32 que se puede ejecutar en MARS desde el IDE o la consola.
 
 El analizador es C++. Python solo se conserva como el adaptador Flask que sirve
 el IDE y comunica el navegador con el ejecutable `compiscript_cli`; ninguna
-regla léxica, sintáctica, semántica o de generación TAC está implementada en
-Python.
+regla léxica, sintáctica, semántica o de generación TAC/MIPS está implementada
+en Python. El adaptador también invoca el simulador real para ejecutar y
+ensamblar el programa.
 
 ## Estado del proyecto
 
@@ -30,6 +33,9 @@ Python.
   funciones, closures, clases y listas.
 - Asignación y reciclaje de temporales con métricas observables.
 - Tabla de símbolos extendida y registros de activación por función o método.
+- Backend MIPS32 con protocolo de llamadas y retornos, registros físicos y
+  almacenamiento de respaldo en pila.
+- Ejecución del ensamblador en MARS y descarga de segmentos de código máquina.
 - Batería C++ de escenarios válidos e inválidos de semántica y TAC, ejecutable
   desde CTest o el IDE.
 - Ejemplos `.cps` para demostración.
@@ -65,38 +71,73 @@ TacGenerator (segundo Visitor C++)
     ├── etiquetas y saltos
     ├── llamadas, parámetros y closures
     ├── temporales con reciclaje
-    └── offsets y registros de activación
+    └── offsets y registros de activación abstractos
     │
     ▼
-JSON: diagnósticos + símbolos + TAC + frames
+MipsGenerator (backend C++)
+    │
+    ├── instrucciones MIPS32 y rutinas auxiliares
+    ├── parámetros, llamadas, retornos y enlaces de acceso
+    └── registros físicos, pila y frames efectivos
+    │
+    ▼
+JSON: diagnósticos + símbolos + TAC + MIPS + frames
     │
     ▼
 Flask (adaptador) ► IDE web
+    │
+    ▼
+MARS ► ensamblado, código máquina y ejecución
 ```
 
 El diseño detallado se encuentra en
 [docs/arquitectura-compiscript.md](docs/arquitectura-compiscript.md). La
 especificación completa del lenguaje intermedio está en
 [docs/codigo-intermedio-tac.md](docs/codigo-intermedio-tac.md).
+La fase final y su convención de llamadas se documentan en
+[docs/generacion-mips.md](docs/generacion-mips.md).
 
 ## Requisitos
 
 - CMake 3.20 o superior.
 - Compilador compatible con C++17.
-- Java para ejecutar la herramienta generadora de ANTLR.
+- Java para ejecutar la herramienta generadora de ANTLR y el simulador MARS.
 - `curl` en macOS/Linux para la descarga inicial de ANTLR.
-- Python 3 con Flask para servir el IDE.
+- Python 3.10 o superior con Flask para servir el IDE.
 
 Flask es únicamente el adaptador web; el análisis sigue ejecutándose en C++.
-Para instalar la dependencia del IDE:
+En macOS o Linux puedes instalar la dependencia en un entorno virtual:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m venv build/venv
+build/venv/bin/python -m pip install -r requirements.txt
+source build/venv/bin/activate
 ```
+
+En Windows PowerShell:
+
+```powershell
+py -m venv build/venv
+.\build\venv\Scripts\python -m pip install -r requirements.txt
+```
+
+En los comandos posteriores de Windows, usa
+`.\build\venv\Scripts\python` para ejecutar `app.py` y las pruebas del IDE.
 
 El script de construcción descarga las distribuciones oficiales de ANTLR
 4.13.2 cuando no están disponibles. El JAR y los artefactos de `build/` se
 ignoran en Git; el código C++ generado sí forma parte del proyecto.
+
+Para preparar MARS una vez:
+
+```bash
+python3 scripts/setup_mars.py
+```
+
+El script descarga el JAR oficial y verifica su SHA-256. Si ya tienes el JAR
+en otra ubicación, puedes indicar su ruta mediante `MARS_JAR`; `JAVA` permite
+seleccionar el ejecutable Java. Las descargas iniciales requieren conexión;
+con las dependencias preparadas, la ejecución se realiza localmente.
 
 ## Compilar y probar
 
@@ -116,9 +157,10 @@ Ambos flujos:
 
 1. descargan el JAR oficial de ANTLR si hace falta;
 2. regeneran lexer, parser y Visitor C++;
-3. descargan y compilan localmente el runtime C++ mediante CMake;
-4. construyen `compiscript_cli` y `compiscript_tests`;
-5. ejecutan la batería automatizada.
+3. preparan y verifican el simulador MARS;
+4. descargan y compilan localmente el runtime C++ mediante CMake;
+5. construyen `compiscript_cli` y `compiscript_tests`;
+6. ejecutan las baterías C++ y de ejecución MIPS.
 
 ## Ejecutar el IDE
 
@@ -134,6 +176,9 @@ Abrir `http://127.0.0.1:5050` permite:
 - analizar el programa con `Ctrl/Cmd + Enter` o con el botón principal;
 - navegar los diagnósticos y saltar a su ubicación;
 - inspeccionar el TAC textual y cada cuádruplo emitido;
+- inspeccionar y descargar el ensamblador MIPS32;
+- ejecutar el programa en MARS y revisar su salida y errores en la consola;
+- descargar un ZIP con el ensamblador y sus segmentos binarios ensamblados;
 - consultar métricas de temporales y registros de activación;
 - explorar el árbol sintáctico de ANTLR;
 - consultar la tabla jerárquica de ámbitos y símbolos;
@@ -154,9 +199,35 @@ También recibe código por entrada estándar:
 ./compiscript_cli --stdin program.cps < program.cps
 ```
 
-La salida es un único documento JSON con `semantic` y `tac`. El código de salida
+La salida es un único documento JSON con `semantic`, `tac` y `mips`. El código de salida
 es `0` cuando todas las fases terminan correctamente, `1` cuando el programa
 contiene diagnósticos y `2` cuando el uso del CLI o el archivo no son válidos.
+
+Para guardar únicamente el ensamblador:
+
+```bash
+./compiscript_cli --file backend/examples/compiscript/codigo_intermedio.cps --emit-mips -o programa.asm
+```
+
+Para compilar y ejecutar un `.cps` en el simulador:
+
+```bash
+python3 scripts/run_mips.py backend/examples/compiscript/codigo_intermedio.cps -o programa.asm
+```
+
+El ejemplo integral imprime `10`. También se puede ejecutar el ensamblador
+guardado y generar el paquete de código máquina:
+
+```bash
+python3 scripts/run_mips.py programa.asm --package programa.zip
+```
+
+El ZIP contiene `program.asm`, `program.text.bin`, `program.data.bin`, un
+manifiesto y las instrucciones de ejecución. Los `.bin` son volcados de
+segmentos MIPS, no archivos ELF ni ejecutables nativos del sistema anfitrión.
+El programa se ejecuta abriendo `program.asm` en MARS o mediante el comando del
+manifiesto. `--assemble-only` permite ensamblar sin ejecutar y `--json` entrega
+un reporte estructurado.
 
 ## Generación de código intermedio
 
@@ -222,8 +293,8 @@ ctest --test-dir build/compiscript --output-on-failure
 
 La suite está en
 [backend/tests/compiscript_tests.cpp](backend/tests/compiscript_tests.cpp) y
-contiene 107 escenarios: 51 programas válidos y 56 errores u omisiones
-esperadas, agrupados por cada familia de reglas. No depende de un framework externo: enlaza
+contiene **115 escenarios** válidos y errores u omisiones esperadas, agrupados por
+cada familia de reglas. No depende de un framework externo: enlaza
 directamente con `compiscript_core`, de modo que prueba el mismo servicio usado
 por el CLI y el IDE.
 
@@ -239,13 +310,47 @@ La cobertura TAC incluye precedencia, cortocircuito lógico, ciclos, `switch`,
 recursividad, closures, clases, listas, temporales, offsets, frames y la omisión
 segura del generador ante errores sintácticos o semánticos.
 
+La batería de ejecución MIPS está en
+[backend/tests/mips_execution_tests.py](backend/tests/mips_execution_tests.py).
+Contiene **66 casos: 54 válidos y 12 errores esperados**. Compila cada programa,
+ejecuta el ensamblador en MARS y compara su salida con
+el resultado esperado. También puede ejecutarse directamente:
+
+```bash
+python3 backend/tests/mips_execution_tests.py
+```
+
+`--filter texto` selecciona casos por nombre o categoría y `--json` presenta el
+reporte que utiliza el IDE. En CTest aparecen `compiscript_semantic_suite` y
+`compiscript_mips_execution` cuando Python, Java y el JAR de MARS están
+disponibles al configurar CMake.
+
+La batería incluye una adaptación de un algoritmo del compilador
+a Compiscript como prueba integral; se puede abrir como
+`algoritmo_compilador.cps` en el IDE. La entrada del compilador es Compiscript,
+por lo que esa prueba utiliza la gramática `.g4` y conserva la referencia a su
+algoritmo C++ de origen.
+
+Las **12 pruebas de integración del IDE** comprueban las rutas de compilación,
+ejecución y descarga con el compilador y MARS reales, además de entradas
+inválidas, ausencia del simulador y límites de ejecución. Después de instalar
+`requirements.txt` en el entorno Python activo:
+
+```bash
+python3 backend/tests/ide_integration_tests.py
+```
+
+Estas pruebas del adaptador se ejecutan por separado de CTest. El conjunto
+automatizado suma **193 casos**, además de la comprobación de la interfaz en
+el navegador.
+
 ## Entregables y evaluación
 
 | Componente evaluado | Evidencia en el proyecto |
 |---|---|
-| Diseño de CI — 25 puntos | Cuádruplos documentados, catálogo de instrucciones, ejemplos y supuestos de traducción. |
-| Generación de TAC — 65 puntos | Segundo Visitor C++, temporales, control de flujo, funciones, clases, listas y batería automatizada. |
-| Tabla de símbolos — 10 puntos | Tamaños, offsets, etiquetas, profundidad léxica y registros de activación. |
+| Llamadas y retornos — 20 puntos | Protocolo de parámetros y retornos, frames, enlaces léxicos, recursión y preservación del estado. |
+| Asignación de registros — 20 puntos | Asignación de registros físicos, almacenamiento en pila y métricas. |
+| Código MIPS — 60 puntos | Generación desde TAC, ensamblado y ejecución en MARS, con casos exitosos y fallidos. |
 
 ## Decisiones sobre el material oficial
 
@@ -269,23 +374,18 @@ backend/compiscript/
 ├── grammar/Compiscript.g4       # Fuente de verdad sintáctica
 ├── generated/                   # Lexer, parser y Visitor C++ de ANTLR
 ├── include/compiscript/         # API y modelos del frontend
-└── src/                         # Visitors semántico/TAC, JSON, servicio y CLI
+└── src/                         # Visitors semántico/TAC, backend MIPS, JSON y CLI
 backend/examples/compiscript/    # Programas .cps del IDE
 backend/tests/compiscript_tests.cpp
+backend/tests/mips_execution_tests.py
+backend/tests/ide_integration_tests.py
 frontend/                        # IDE
 scripts/                         # Generación y construcción reproducible
 CMakeLists.txt
 requirements.txt                 # Dependencia del adaptador web
 app.py                           # Solo adaptador web
+mips_runtime.py                  # Puente hacia MARS y paquetes de código máquina
 ```
-
-## Material e historial
-
-- [Enunciado del Proyecto 2](Instrucciones/Proyecto_2__Compiladores.md)
-- [Enunciado semántico previo](Instrucciones/Generador_de_Analizadores_Semánticos.md)
-- [Especificación](Instrucciones/Especificaciones%20(1).md)
-- [Gramática originalmente entregada](Instrucciones/Compiscript%20(1).g4)
-- [ANTLR](https://www.antlr.org/)
 
 El libro *Compilers: Principles, Techniques, and Tools* se usa como consulta
 local, especialmente para tablas de símbolos encadenadas, síntesis de tipos y
