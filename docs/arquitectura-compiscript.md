@@ -19,7 +19,12 @@ distintas del compilador.
    visita y emite cuádruplos, etiquetas, temporales y llamadas.
 6. `TacGenerator` complementa la tabla con tamaños, offsets, almacenamiento y
    etiquetas, y calcula los registros de activación.
-7. Los modelos semántico y TAC se serializan con relaciones por ID estables.
+7. Si el TAC es válido, `MipsGenerator` traduce los cuádruplos y la información
+   de símbolos a ensamblador MIPS32. Esta fase determina la distribución física
+   de memoria y las secuencias de llamada y retorno.
+8. Los modelos semántico, TAC y MIPS se serializan con relaciones por ID
+   estables. El mismo ensamblador se usa para descargar, ejecutar y construir
+   los artefactos de código máquina.
 
 El análisis semántico no se ejecuta cuando existen errores léxicos o
 sintácticos. Esto evita diagnósticos en cascada sobre un árbol recuperado e
@@ -30,6 +35,12 @@ De forma equivalente, el TAC no se ejecuta cuando existen errores de cualquiera
 de las fases anteriores. `TacResult.skipped` y `reason` explican esta decisión al
 CLI y al IDE.
 
+El backend MIPS conserva la misma regla: no se ejecuta si una fase anterior
+falla. `MipsResult.skipped`, `reason` y sus diagnósticos distinguen un error de
+generación de una omisión provocada por una entrada inválida. La ejecución del
+ensamblador pertenece a otra operación: compilar correctamente no equivale a
+haber ejecutado correctamente el programa.
+
 ## Separación entre semántica y TAC
 
 El código intermedio no se genera dentro de `semantic_analyzer.cpp`. Ambas fases
@@ -39,6 +50,7 @@ distintos:
 - `SemanticAnalyzer` produce `SemanticResult` y `SemanticBindings`;
 - `TacGenerator` consume ambos, actualiza el layout de símbolos y produce
   `TacResult`;
+- `MipsGenerator` consume `SemanticResult` y `TacResult` y produce `MipsResult`;
 - `service.cpp` controla el orden y evita ejecutar una fase cuando su
   precondición falla.
 
@@ -109,8 +121,8 @@ de su scope de función, se guardan dos relaciones:
 - `captures` en la función;
 - `captured_by` en el símbolo capturado.
 
-Esto representa estáticamente el entorno de definición que una fase posterior
-convierte en un enlace de acceso o closure en tiempo de ejecución. El TAC emite
+Esto representa estáticamente el entorno de definición que el backend MIPS
+convierte en un enlace de acceso en tiempo de ejecución. El TAC emite
 `capture` en la función anidada, `static_link` en la llamada y usa direcciones
 `env[...]` para los símbolos capturados, como se discute en la sección 7.3 del
 libro del dragón.
@@ -119,8 +131,12 @@ libro del dragón.
 
 Las instrucciones se guardan como cuádruplos estructurados, no como cadenas
 sueltas. Una serialización textual facilita la evaluación humana, mientras que
-`op`, `arg1`, `arg2` y `result` permiten pruebas precisas y una futura fase de
-código objeto.
+`op`, `arg1`, `arg2` y `result` permiten pruebas precisas y la generación de
+instrucciones MIPS.
+
+El backend consume estos campos estructurados directamente. La presentación
+textual TAC se conserva para inspección, pero no se vuelve a analizar como si
+fuera otro lenguaje fuente.
 
 Cada rutina tiene su propio pool de temporales. Los operandos se liberan después
 de emitir la instrucción que los consume; el nombre vuelve a una lista libre y
@@ -143,6 +159,48 @@ La tabla de símbolos se complementa después del análisis semántico:
 Cada `ActivationRecord` reserva enlaces de control y acceso, dirección y valor
 de retorno, parámetros, locales y temporales. El modelo conserva además la
 profundidad léxica y las capturas requeridas por closures.
+
+Ese registro es un diseño abstracto de la fase TAC. `MipsFrame` describe el
+frame físico que utiliza el ensamblador: tamaño efectivo, función y padre
+léxico, espacio de parámetros, locales, temporales y registros preservados.
+Ambos modelos se muestran por separado para que el tamaño abstracto no se
+confunda con una dirección de memoria ejecutable.
+
+## Backend MIPS y entorno de ejecución
+
+`mips_generator.cpp` organiza el TAC por rutinas antes de emitir instrucciones.
+Así una declaración de función, incluida una función anidada, no introduce una
+caída accidental del flujo principal dentro del cuerpo de la rutina.
+
+Los valores que sobreviven a operaciones y llamadas cuentan con almacenamiento
+en memoria. El asignador selecciona registros físicos y conserva el valor en
+su ubicación de respaldo al reutilizarlos. Los límites de bloque y las llamadas
+mantienen coherente ese almacenamiento, incluso cuando distintos caminos
+convergen en una misma etiqueta.
+
+Los enlaces de control identifican al llamante; los enlaces de acceso
+identifican al entorno de definición. Para una llamada recursiva o entre
+funciones hermanas, el enlace de acceso se obtiene del padre léxico correcto.
+Una función anidada dentro de un método continúa siendo una función y accede a
+`this` a través de su entorno; únicamente los métodos reciben un receptor como
+argumento implícito.
+
+El código generado incluye las rutinas auxiliares que necesita el programa.
+La impresión y la reserva de memoria usan los servicios del simulador MARS.
+La representación de valores, la distribución de frames, la asignación de
+registros y los errores de ejecución están descritos en
+[generacion-mips.md](generacion-mips.md).
+
+## Compilación, ensamblado y ejecución
+
+El núcleo C++ genera MIPS; MARS ensambla ese texto a instrucciones máquina y
+simula su ejecución. Python coordina procesos y transporta resultados hacia el
+IDE, sin interpretar expresiones Compiscript ni sustituir la ejecución MIPS.
+
+Las pruebas de ejecución recorren todo el flujo `.cps → TAC → MIPS → MARS` y
+comparan la salida con un resultado esperado independiente. Se mantienen
+además las pruebas de semántica y TAC, de modo que una regresión puede ubicarse
+en la fase que la produjo.
 
 ## Clases
 
@@ -169,11 +227,14 @@ La salida contiene:
 
 - `syntax_ok`, `semantic_ok` y `ok`;
 - `tac_ok`;
+- `mips_ok`;
 - `tokens`;
 - `tree`;
 - `syntax_diagnostics` y `semantic.diagnostics`;
 - `semantic.scopes`, `semantic.symbols` y `semantic.classes`;
 - `tac.instructions`, `tac.text` y `tac.activation_records`;
+- `mips.text`, `mips.diagnostics`, `mips.frames` y métricas de generación y
+  asignación de registros;
 - métricas de creación, reutilización y máximo simultáneo de temporales;
 - `summary` con conteos para el IDE.
 
